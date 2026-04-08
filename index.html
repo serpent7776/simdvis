@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIMD Visualised</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 600px;
+  }
+
+  .title { font-size: 18px; font-weight: 500; margin-bottom: .25rem; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1.25rem; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .vis-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .vis-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border);
+    background: var(--bg2);
+    text-decoration: none;
+    color: var(--text);
+    transition: background .15s, border-color .15s;
+  }
+  .vis-link:hover { background: var(--bg3); border-color: var(--border2); }
+
+  .vis-name { font-size: 14px; font-weight: 500; font-family: var(--font-mono); }
+  .vis-desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
+  .vis-badges { display: flex; gap: 5px; margin-top: 4px; }
+  .vis-arrow { margin-left: auto; font-size: 14px; color: var(--text3); }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title">SIMD Visualisers</div>
+  <p class="subtitle">Interactive visualisers for x86 SIMD instructions</p>
+
+  <div class="vis-list">
+    <a class="vis-link" href="pshufb.html">
+      <div>
+        <div class="vis-name">PSHUFB</div>
+        <div class="vis-desc">Packed byte shuffle — dst[i] = src[mask[i] &amp; 0x0F]</div>
+        <div class="vis-badges">
+          <span class="badge bb">SSSE3</span>
+          <span class="badge bz">128-bit XMM</span>
+        </div>
+      </div>
+      <span class="vis-arrow">&rarr;</span>
+    </a>
+  </div>
+
+  <footer>
+    <span>https://github.com/serpent7776/simdvis</span>
+  </footer>
+</div>
+</body>
+</html>
