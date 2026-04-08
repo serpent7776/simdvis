@@ -94,8 +94,8 @@
   .mask-hi:hover { background: #F7C1C1; }
   .mask-cell.active { box-shadow: 0 0 0 2.5px #EF9F27; transform: scale(1.08); z-index: 3; }
 
-  .dst-val { background: #EAF3DE; border-color: #639922; color: #27500A; pointer-events: none; }
-  .dst-zer { background: #F1EFE8; border-color: #888780; color: #5F5E5A; pointer-events: none; }
+  .dst-val { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-zer { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: default; }
 
   @media (prefers-color-scheme: dark) {
     .src-cell  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
@@ -199,7 +199,7 @@
   <div class="row-lbl"><span class="badge bg">dst</span></div>
   <div class="reg-grid" id="dst-grid"></div>
 
-  <div class="info" id="info">Hover or click a mask cell to inspect the shuffle.</div>
+  <div class="info" id="info">Hover over any cell to inspect the shuffle.</div>
 
   <footer>
     <span>PSHUFB interactive visualiser</span>
@@ -211,7 +211,7 @@
 const N=16, HI=0x80;
 let src=Array.from({length:N},(_,i)=>i);
 let mask=Array.from({length:N},(_,i)=>i);
-let hov=-1;
+let hov=-1, hovSrc=-1;
 
 const PRESETS={
   identity: Array.from({length:N},(_,i)=>i),
@@ -226,7 +226,7 @@ function hex2(v){return v.toString(16).toUpperCase().padStart(2,'0')}
 function dstVal(i){const m=mask[i];return m===HI?null:src[m]}
 
 function applyPreset(k){
-  if(PRESETS[k]){mask=[...PRESETS[k]];closePopup();hov=-1;render();drawArrows()}
+  if(PRESETS[k]){mask=[...PRESETS[k]];closePopup();hov=-1;hovSrc=-1;render();drawArrows()}
 }
 
 function render(){
@@ -240,10 +240,12 @@ function renderSrc(){
   if(old)g.appendChild(old);
   for(let i=0;i<N;i++){
     const el=document.createElement('div');
-    el.className='cell src-cell'+(hov>=0&&mask[hov]!==HI&&mask[hov]===i?' lit':'');
+    el.className='cell src-cell'+((hov>=0&&mask[hov]!==HI&&mask[hov]===i)||hovSrc===i?' lit':'');
     el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">0x${hex2(src[i])}</span>`;
     el.title=`src[${i}] = 0x${hex2(src[i])} — click to edit`;
     el.onclick=()=>openSrcPopup(i,el);
+    el.addEventListener('mouseenter',()=>{hovSrc=i;hov=-1;render();drawArrows();updateInfo()});
+    el.addEventListener('mouseleave',()=>{hovSrc=-1;render();drawArrows();resetInfo()});
     g.appendChild(el);
   }
 }
@@ -254,12 +256,12 @@ function renderMask(){
   for(let i=0;i<N;i++){
     const isHi=mask[i]===HI;
     const el=document.createElement('div');
-    el.className='cell mask-cell '+(isHi?'mask-hi':'mask-num')+(hov===i?' active':'');
+    el.className='cell mask-cell '+(isHi?'mask-hi':'mask-num')+(hov===i||(hovSrc>=0&&!isHi&&mask[i]===hovSrc)?' active':'');
     el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">${isHi?'0x80':mask[i]}</span>`;
     el.title=isHi?`mask[${i}]=0x80 → zero`:`mask[${i}]=${mask[i]} → src[${mask[i]}]`;
     el.onclick=(e)=>{e.preventDefault();cycleMask(i)};
     el.oncontextmenu=(e)=>{e.preventDefault();toggleHiBit(i)};
-    el.addEventListener('mouseenter',()=>{hov=i;render();drawArrows();updateInfo()});
+    el.addEventListener('mouseenter',()=>{hov=i;hovSrc=-1;render();drawArrows();updateInfo()});
     el.addEventListener('mouseleave',()=>{hov=-1;render();drawArrows();resetInfo()});
     g.appendChild(el);
   }
@@ -272,8 +274,10 @@ function renderDst(){
     const v=dstVal(i);
     const el=document.createElement('div');
     el.className='cell '+(v===null?'dst-zer':'dst-val');
-    if(hov===i)el.style.boxShadow='0 0 0 2.5px #639922';
+    if(hov===i||(hovSrc>=0&&mask[i]!==HI&&mask[i]===hovSrc))el.style.boxShadow='0 0 0 2.5px #639922';
     el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">${v===null?'0x00':'0x'+hex2(v)}</span>`;
+    el.addEventListener('mouseenter',()=>{hov=i;hovSrc=-1;render();drawArrows();updateInfo()});
+    el.addEventListener('mouseleave',()=>{hov=-1;render();drawArrows();resetInfo()});
     g.appendChild(el);
   }
 }
@@ -291,6 +295,16 @@ function toggleHiBit(i){
 
 function updateInfo(){
   const box=document.getElementById('info');
+  if(hovSrc>=0){
+    const lanes=[];
+    for(let i=0;i<N;i++) if(mask[i]===hovSrc) lanes.push(i);
+    if(lanes.length===0){
+      box.innerHTML=`<strong>src[${hovSrc}] = 0x${hex2(src[hovSrc])}</strong> — not referenced by any mask lane`;
+    } else {
+      box.innerHTML=`<strong>src[${hovSrc}] = 0x${hex2(src[hovSrc])}</strong> → read by lane${lanes.length>1?'s':''} <strong>${lanes.join(', ')}</strong>`;
+    }
+    return;
+  }
   if(hov<0){resetInfo();return}
   const m=mask[hov];
   if(m===HI){
@@ -300,7 +314,7 @@ function updateInfo(){
   }
 }
 function resetInfo(){
-  document.getElementById('info').textContent='Hover or click a mask cell to inspect the shuffle.';
+  document.getElementById('info').textContent='Hover over any cell to inspect the shuffle.';
 }
 
 function openSrcPopup(i,el){
@@ -371,7 +385,14 @@ function drawArrows(){
   canv.width=W*dpr; canv.height=52*dpr;
   ctx.scale(dpr,dpr);
   ctx.clearRect(0,0,W,52);
-  if(hov<0||mask[hov]===HI)return;
+
+  const pairs=[];
+  if(hov>=0&&mask[hov]!==HI){
+    pairs.push([mask[hov],hov]);
+  } else if(hovSrc>=0){
+    for(let i=0;i<N;i++) if(mask[i]===hovSrc) pairs.push([hovSrc,i]);
+  }
+  if(!pairs.length)return;
 
   const srcG=document.getElementById('src-grid');
   const maskG=document.getElementById('mask-grid');
@@ -383,22 +404,22 @@ function drawArrows(){
     return r.left+r.width/2-canvRect.left;
   }
 
-  const x1=cx(srcG,mask[hov]), x2=cx(maskG,hov);
-  const y1=2, y2=48;
-  const my=(y1+y2)/2;
-
-  ctx.beginPath();
-  ctx.moveTo(x1,y1);
-  ctx.bezierCurveTo(x1,my,x2,my,x2,y2);
-  ctx.strokeStyle='#EF9F27'; ctx.lineWidth=2; ctx.stroke();
-
-  const hw=5,hl=8;
-  ctx.beginPath();
-  ctx.moveTo(x2,y2);
-  ctx.lineTo(x2-hw,y2-hl);
-  ctx.lineTo(x2+hw,y2-hl);
-  ctx.closePath();
-  ctx.fillStyle='#EF9F27'; ctx.fill();
+  for(const [si,mi] of pairs){
+    const x1=cx(srcG,si), x2=cx(maskG,mi);
+    const y1=2, y2=48;
+    const my=(y1+y2)/2;
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.bezierCurveTo(x1,my,x2,my,x2,y2);
+    ctx.strokeStyle='#EF9F27'; ctx.lineWidth=2; ctx.stroke();
+    const hw=5,hl=8;
+    ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-hw,y2-hl);
+    ctx.lineTo(x2+hw,y2-hl);
+    ctx.closePath();
+    ctx.fillStyle='#EF9F27'; ctx.fill();
+  }
 }
 
 const _initPreset=document.getElementById('preset').value;
