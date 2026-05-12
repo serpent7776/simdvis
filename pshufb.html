@@ -228,7 +228,7 @@ const PRESETS={
 };
 
 function hex2(v){return v.toString(16).toUpperCase().padStart(2,'0')}
-function dstVal(i){const m=mask[i];return m===HI?null:src[m]}
+function dstVal(i){const m=mask[i];return m&0x80?null:src[m&0x0F]}
 
 function applyPreset(k){
   if(PRESETS[k]){mask=[...PRESETS[k]];closePopup();hovLane=-1;hovSrc=-1;render();drawArrows()}
@@ -245,7 +245,7 @@ function renderSrc(){
   if(old)g.appendChild(old);
   for(let i=0;i<N;i++){
     const el=document.createElement('div');
-    el.className='cell src-cell'+((hovLane>=0&&mask[hovLane]!==HI&&mask[hovLane]===i)||hovSrc===i?' lit':'');
+    el.className='cell src-cell'+((hovLane>=0&&!(mask[hovLane]&0x80)&&(mask[hovLane]&0x0F)===i)||hovSrc===i?' lit':'');
     el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">0x${hex2(src[i])}</span>`;
     el.title=`src[${i}] = 0x${hex2(src[i])} — click to edit`;
     el.onclick=()=>openSrcPopup(i,el);
@@ -259,11 +259,11 @@ function renderMask(){
   const g=document.getElementById('mask-grid');
   g.innerHTML='';
   for(let i=0;i<N;i++){
-    const isHi=mask[i]===HI;
+    const isHi=!!(mask[i]&0x80);
     const el=document.createElement('div');
-    el.className='cell mask-cell '+(isHi?'mask-hi':'mask-num')+(hovLane===i||(hovSrc>=0&&!isHi&&mask[i]===hovSrc)?' active':'');
-    el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">${isHi?'0x80':mask[i]}</span>`;
-    el.title=isHi?`mask[${i}]=0x80 → zero`:`mask[${i}]=${mask[i]} → src[${mask[i]}]`;
+    el.className='cell mask-cell '+(isHi?'mask-hi':'mask-num')+(hovLane===i||(hovSrc>=0&&!isHi&&(mask[i]&0x0F)===hovSrc)?' active':'');
+    el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">${isHi?'0x'+hex2(mask[i]):mask[i]}</span>`;
+    el.title=isHi?`mask[${i}]=0x${hex2(mask[i])} → zero`:`mask[${i}]=${mask[i]} → src[${mask[i]&0x0F}]`;
     el.onclick=(e)=>{e.preventDefault();cycleMask(i)};
     el.oncontextmenu=(e)=>{e.preventDefault();toggleHiBit(i)};
     el.addEventListener('mouseenter',()=>{hovLane=i;hovSrc=-1;render();drawArrows();updateInfo()});
@@ -279,7 +279,7 @@ function renderDst(){
     const v=dstVal(i);
     const el=document.createElement('div');
     el.className='cell '+(v===null?'dst-zer':'dst-val');
-    if(hovLane===i||(hovSrc>=0&&mask[i]!==HI&&mask[i]===hovSrc))el.style.boxShadow='0 0 0 2.5px #639922';
+    if(hovLane===i||(hovSrc>=0&&!(mask[i]&0x80)&&(mask[i]&0x0F)===hovSrc))el.style.boxShadow='0 0 0 2.5px #639922';
     el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">${v===null?'0x00':'0x'+hex2(v)}</span>`;
     el.addEventListener('mouseenter',()=>{hovLane=i;hovSrc=-1;render();drawArrows();updateInfo()});
     el.addEventListener('mouseleave',()=>{hovLane=-1;render();drawArrows();resetInfo()});
@@ -302,7 +302,7 @@ function updateInfo(){
   const box=document.getElementById('info');
   if(hovSrc>=0){
     const lanes=[];
-    for(let i=0;i<N;i++) if(mask[i]===hovSrc) lanes.push(i);
+    for(let i=0;i<N;i++) if(!(mask[i]&0x80)&&(mask[i]&0x0F)===hovSrc) lanes.push(i);
     if(lanes.length===0){
       box.innerHTML=`<strong>src[${hovSrc}] = 0x${hex2(src[hovSrc])}</strong> — not referenced by any mask lane`;
     } else {
@@ -312,10 +312,11 @@ function updateInfo(){
   }
   if(hovLane<0){resetInfo();return}
   const m=mask[hovLane];
-  if(m===HI){
-    box.innerHTML=`<strong>mask[${hovLane}] = 0x80</strong> — high bit set → <strong>dst[${hovLane}] = 0x00</strong> (zeroed, src ignored)`;
+  if(m&0x80){
+    box.innerHTML=`<strong>mask[${hovLane}] = 0x${hex2(m)}</strong> — high bit set → <strong>dst[${hovLane}] = 0x00</strong> (zeroed, src ignored)`;
   } else {
-    box.innerHTML=`<strong>mask[${hovLane}] = ${m}</strong> → reads <strong>src[${m}] = 0x${hex2(src[m])}</strong> → <strong>dst[${hovLane}] = 0x${hex2(src[m])}</strong>`;
+    const idx=m&0x0F;
+    box.innerHTML=`<strong>mask[${hovLane}] = ${m}</strong> → reads <strong>src[${idx}] = 0x${hex2(src[idx])}</strong> → <strong>dst[${hovLane}] = 0x${hex2(src[idx])}</strong>`;
   }
 }
 function resetInfo(){
@@ -392,10 +393,10 @@ function drawArrows(){
   ctx.clearRect(0,0,W,52);
 
   const pairs=[];
-  if(hovLane>=0&&mask[hovLane]!==HI){
-    pairs.push([mask[hovLane],hovLane]);
+  if(hovLane>=0&&!(mask[hovLane]&0x80)){
+    pairs.push([mask[hovLane]&0x0F,hovLane]);
   } else if(hovSrc>=0){
-    for(let i=0;i<N;i++) if(mask[i]===hovSrc) pairs.push([hovSrc,i]);
+    for(let i=0;i<N;i++) if(!(mask[i]&0x80)&&(mask[i]&0x0F)===hovSrc) pairs.push([hovSrc,i]);
   }
   if(!pairs.length)return;
 
