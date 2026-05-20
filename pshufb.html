@@ -230,18 +230,6 @@
 
   <div id="lanes"></div>
 
-  <div id="kmask-section" hidden>
-    <div class="row-lbl">
-      <span class="badge bp">k1</span>
-      <span class="hint" id="kmask-hint">click to toggle 0/1 — 1 = element active</span>
-    </div>
-    <div class="reg-grid multi" id="kmask-grid"></div>
-    <div style="height:10px"></div>
-  </div>
-
-  <div class="row-lbl"><span class="badge bg">dst</span></div>
-  <div class="reg-grid multi" id="dst-grid"></div>
-
   <div class="info" id="info">Hover over any cell to inspect the shuffle.</div>
 
   <footer>
@@ -322,13 +310,20 @@ function changeWidth(w){
 
 function changeKmaskMode(m){
   kmode = m;
-  document.getElementById('kmask-section').hidden = (kmode === 'off');
-  document.getElementById('kmask-hint').textContent =
-    kmode === 'zero'  ? "click to toggle 0/1 — 0 zeroes the output byte"
-  : kmode === 'merge' ? "click to toggle 0/1 — 0 keeps the prior dst byte"
-                      : "click to toggle 0/1 — 1 = element active";
+  for(let l=0; l<LANES; l++){
+    const row = document.getElementById('kmask-row-'+l);
+    if(row) row.hidden = (kmode === 'off');
+  }
+  updateKmaskHints();
   syncBadges();
   render(); drawAllArrows();
+}
+
+function updateKmaskHints(){
+  const txt = kmode === 'zero'  ? "click to toggle 0/1 — 0 zeroes the output byte"
+            : kmode === 'merge' ? "click to toggle 0/1 — 0 keeps the prior dst byte"
+                                : "click to toggle 0/1 — 1 = element active";
+  document.querySelectorAll('.kmask-hint').forEach(el => el.textContent = txt);
 }
 
 function syncBadges(){
@@ -354,9 +349,18 @@ function rebuildLanes(){
         <span class="hint">left-click: cycle 0–15 &nbsp;·&nbsp; right-click: toggle 0x80</span>
       </div>
       <div class="reg-grid" id="mask-grid-${l}"></div>
+      <div class="kmask-row" id="kmask-row-${l}" ${kmode==='off'?'hidden':''}>
+        <div style="height:8px"></div>
+        <div class="row-lbl"><span class="badge bp">k1</span><span class="hint kmask-hint">click to toggle 0/1</span></div>
+        <div class="reg-grid" id="kmask-grid-${l}"></div>
+      </div>
+      <div style="height:8px"></div>
+      <div class="row-lbl"><span class="badge bg">dst</span></div>
+      <div class="reg-grid" id="dst-grid-${l}"></div>
     `;
     root.appendChild(wrap);
   }
+  updateKmaskHints();
 }
 
 function render(){
@@ -412,11 +416,18 @@ function renderMaskLane(l){
 
 function renderKmask(){
   if(kmode === 'off') return;
-  const g = document.getElementById('kmask-grid');
+  for(let l=0; l<LANES; l++) renderKmaskLane(l);
+}
+
+function renderKmaskLane(l){
+  const g = document.getElementById('kmask-grid-'+l);
+  if(!g) return;
   g.innerHTML = '';
-  for(let i=0; i<N; i++){
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
     const on = !!kmask[i];
-    const active = hovK === i || hovLane === i || (hovSrc >= 0 && hovSrc === i);
+    const active = hovK === i || hovLane === i || hovSrc === i;
     const el = document.createElement('div');
     el.className = 'cell km-cell ' + (on ? '' : 'km-off') + (active ? ' active' : '');
     el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${on ? 1 : 0}</span>`;
@@ -429,18 +440,25 @@ function renderKmask(){
 }
 
 function renderDst(){
-  const g = document.getElementById('dst-grid');
+  for(let l=0; l<LANES; l++) renderDstLane(l);
+}
+
+function renderDstLane(l){
+  const g = document.getElementById('dst-grid-'+l);
+  if(!g) return;
   g.innerHTML = '';
-  for(let i=0; i<N; i++){
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
     const s = dstStatus(i);
     const el = document.createElement('div');
     let txt, cls;
-    if(s.kind === 'val')   { txt = '0x'+hex2(s.val); cls = 'dst-val'; }
-    else if(s.kind === 'zero'){ txt = '0x00';        cls = 'dst-zer'; }
-    else                   { txt = '0x'+hex2(s.val); cls = 'dst-keep'; }
+    if(s.kind === 'val')      { txt = '0x'+hex2(s.val); cls = 'dst-val'; }
+    else if(s.kind === 'zero'){ txt = '0x00';           cls = 'dst-zer'; }
+    else                      { txt = '0x'+hex2(s.val); cls = 'dst-keep'; }
     el.className = 'cell ' + cls;
     const lit = hovLane === i || hovK === i
-             || (hovSrc >= 0 && laneOf(hovSrc) === laneOf(i)
+             || (hovSrc >= 0 && laneOf(hovSrc) === l
                  && !(mask[i] & 0x80) && (mask[i] & 0x0F) === (hovSrc - laneOf(hovSrc)*LANE)
                  && !(kmode!=='off' && !kmask[i]));
     if(lit) el.style.boxShadow = '0 0 0 2.5px #639922';
