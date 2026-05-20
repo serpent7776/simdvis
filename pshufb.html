@@ -377,7 +377,8 @@ function renderSrcLane(l){
   const base = l * LANE;
   for(let k=0; k<LANE; k++){
     const i = base + k;
-    const lit = (hovLane >= 0 && laneOf(hovLane)===l && !(mask[hovLane] & 0x80) && (mask[hovLane] & 0x0F) === k)
+    const ref = hovLane >= 0 ? hovLane : (hovK >= 0 ? hovK : -1);
+    const lit = (ref >= 0 && laneOf(ref)===l && !(mask[ref] & 0x80) && (mask[ref] & 0x0F) === k)
              || hovSrc === i;
     const el = document.createElement('div');
     el.className = 'cell src-cell' + (lit ? ' lit' : '');
@@ -399,6 +400,7 @@ function renderMaskLane(l){
     const m = mask[i];
     const isHi = !!(m & 0x80);
     const active = hovLane === i
+                || hovK === i
                 || (hovSrc >= 0 && laneOf(hovSrc)===l && !isHi && (m & 0x0F) === (hovSrc - base));
     const el = document.createElement('div');
     el.className = 'cell mask-cell ' + (isHi ? 'mask-hi' : 'mask-num') + (active ? ' active' : '');
@@ -459,8 +461,7 @@ function renderDstLane(l){
     el.className = 'cell ' + cls;
     const lit = hovLane === i || hovK === i
              || (hovSrc >= 0 && laneOf(hovSrc) === l
-                 && !(mask[i] & 0x80) && (mask[i] & 0x0F) === (hovSrc - laneOf(hovSrc)*LANE)
-                 && !(kmode!=='off' && !kmask[i]));
+                 && !(mask[i] & 0x80) && (mask[i] & 0x0F) === (hovSrc - laneOf(hovSrc)*LANE));
     if(lit) el.style.boxShadow = '0 0 0 2.5px #639922';
     el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${txt}</span>`;
     el.title = s.kind === 'val'  ? `dst[${i}] = 0x${hex2(s.val)}`
@@ -487,13 +488,24 @@ function updateInfo(){
   const box = document.getElementById('info');
   if(hovK >= 0){
     const on = !!kmask[hovK];
+    const m = mask[hovK], l = laneOf(hovK), base = l*LANE;
+    let path;
+    if(m & 0x80){
+      path = `<strong>mask[${hovK}] = 0x${hex2(m)}</strong> → would zero`;
+    } else {
+      const idx = base + (m & 0x0F);
+      path = `<strong>mask[${hovK}] = ${m}</strong> → <strong>src[${idx}] = 0x${hex2(src[idx])}</strong>`;
+    }
     if(on){
-      box.innerHTML = `<strong>k1[${hovK}] = 1</strong> — byte ${hovK} passes through the shuffle.`;
+      const tail = (m & 0x80)
+        ? `<strong>dst[${hovK}] = 0x00</strong>`
+        : `<strong>dst[${hovK}] = 0x${hex2(src[base + (m & 0x0F)])}</strong>`;
+      box.innerHTML = `<strong>k1[${hovK}] = 1</strong> — pass-through · ${path} → ${tail}`;
     } else {
       const tail = kmode === 'zero'
-        ? `<strong>dst[${hovK}] = 0x00</strong> (zeroed)`
+        ? `<strong>dst[${hovK}] = 0x00</strong> (zeroed by {z})`
         : `<strong>dst[${hovK}] = 0x${hex2(dstPrev[hovK])}</strong> (kept — prior value)`;
-    box.innerHTML = `<strong>k1[${hovK}] = 0</strong> — shuffle suppressed → ${tail}`;
+      box.innerHTML = `<strong>k1[${hovK}] = 0</strong> — shuffle suppressed · ${path} → ${tail}`;
     }
     return;
   }
@@ -606,14 +618,13 @@ function drawArrows(l){
 
   const base = l * LANE;
   const pairs = [];
-  if(hovLane >= 0 && laneOf(hovLane) === l && !(mask[hovLane] & 0x80)
-     && !(kmode!=='off' && !kmask[hovLane])){
-    pairs.push([base + (mask[hovLane] & 0x0F), hovLane]);
+  const ref = hovLane >= 0 ? hovLane : (hovK >= 0 ? hovK : -1);
+  if(ref >= 0 && laneOf(ref) === l && !(mask[ref] & 0x80)){
+    pairs.push([base + (mask[ref] & 0x0F), ref]);
   } else if(hovSrc >= 0 && laneOf(hovSrc) === l){
     const within = hovSrc - base;
     for(let i=base;i<base+LANE;i++){
-      if(!(mask[i]&0x80) && (mask[i]&0x0F)===within
-         && !(kmode!=='off' && !kmask[i])) pairs.push([hovSrc, i]);
+      if(!(mask[i]&0x80) && (mask[i]&0x0F)===within) pairs.push([hovSrc, i]);
     }
   }
   if(!pairs.length) return;
