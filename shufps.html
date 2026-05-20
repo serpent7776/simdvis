@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SHUFPS — Interactive Float Shuffle Visualiser</title>
+<title>SHUFPS / VSHUFPS — Interactive Float Shuffle Visualiser</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -51,29 +51,31 @@
     border-radius: var(--radius-lg);
     padding: 1.5rem;
     width: 100%;
-    max-width: 560px;
+    max-width: 920px;
   }
 
-  .header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: .25rem; }
-  .title { font-size: 16px; font-weight: 500; }
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
   .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
 
   .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
   .bb { background: #B5D4F4; color: #042C53; }
-  .bp { background: #E0D4F7; color: #3B1F8C; }
   .ba { background: #FAC775; color: #412402; }
   .bg { background: #C0DD97; color: #173404; }
+  .br { background: #F7C1C1; color: #501313; }
+  .bp { background: #D8C9F4; color: #2A1356; }
   .bz { background: #D3D1C7; color: #2C2C2A; }
 
   @media (prefers-color-scheme: dark) {
     .bb { background: #0C447C; color: #B5D4F4; }
-    .bp { background: #3B1F8C; color: #E0D4F7; }
     .ba { background: #633806; color: #FAC775; }
     .bg { background: #27500A; color: #C0DD97; }
+    .br { background: #791F1F; color: #F7C1C1; }
+    .bp { background: #3A2070; color: #D8C9F4; }
     .bz { background: #444441; color: #D3D1C7; }
   }
 
-  .reg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); column-gap: 3px; row-gap: 3px; }
 
   .cell {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -96,7 +98,15 @@
   .imm-cell:hover { background: #FAC775; }
   .imm-cell.active { box-shadow: 0 0 0 2.5px #EF9F27; transform: scale(1.08); z-index: 3; }
 
-  .dst-val { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .km-cell  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 32px; }
+  .km-cell:hover { background: #D8C9F4; }
+  .km-cell.km-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km-cell.km-off:hover { background: #E4E1D5; }
+  .km-cell.active { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  .dst-val  { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-zer  { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: default; }
+  .dst-keep { background: #F4F0FA; border-color: #8367C7; color: #2A1356; cursor: default; }
 
   @media (prefers-color-scheme: dark) {
     .src-cell  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
@@ -107,12 +117,29 @@
     .src2-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
     .imm-cell { background: #633806; border-color: #EF9F27; color: #FAC775; }
     .imm-cell:hover { background: #854F0B; }
-    .dst-val { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .km-cell  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km-cell:hover { background: #4F2D94; }
+    .km-cell.km-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km-cell.km-off:hover { background: #3A3A38; }
+    .dst-val  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-zer  { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .dst-keep { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
   }
 
   .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
   .hint { font-size: 11px; color: var(--text3); }
   .imm-lbl { font-size: 12px; color: var(--text2); font-family: var(--font-mono); margin-top: 6px; text-align: center; }
+
+  .lane { margin-bottom: 6px; }
+  .lane + .lane { padding-top: 10px; border-top: 0.5px dashed var(--border); }
+  .lane-header {
+    font-size: 11px; color: var(--text2); font-family: var(--font-mono);
+    margin: 4px 0 6px; display: flex; align-items: center; gap: 6px;
+  }
+  .lane-header .lane-tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--text2); border: 0.5px solid var(--border);
+  }
 
   .info {
     font-size: 12px; color: var(--text2);
@@ -121,12 +148,14 @@
     margin-top: .75rem;
   }
   .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
 
   select {
     font-size: 11px; padding: 2px 5px; border-radius: 5px;
     border: 0.5px solid var(--border2);
     background: var(--bg2); color: var(--text);
   }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
 
   .popup {
     position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
@@ -166,11 +195,10 @@
 <div class="card">
 
   <div class="header">
-    <span class="title">SHUFPS</span>
-    <span class="badge bb">SSE</span>
-    <span class="badge bz">128-bit XMM</span>
-    <span style="flex:1"></span>
-    <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px">
+    <span class="title">SHUFPS / VSHUFPS</span>
+    <span class="badge bb" id="isa-badge">SSE</span>
+    <span class="badge bz" id="width-badge">128-bit XMM</span>
+    <label class="ctl">
       Preset:
       <select id="preset" onchange="applyPreset(this.value)">
         <option value="identity">Identity (0xE4)</option>
@@ -178,31 +206,34 @@
         <option value="swap">Swap (0x4E)</option>
       </select>
     </label>
+    <span style="flex:1"></span>
+    <label class="ctl">
+      Width:
+      <select id="width" onchange="changeWidth(this.value)">
+        <option value="4">XMM (128)</option>
+        <option value="8">YMM (256)</option>
+        <option value="16">ZMM (512)</option>
+      </select>
+    </label>
+    <label class="ctl">
+      Mask:
+      <select id="kmode" onchange="changeKmaskMode(this.value)">
+        <option value="off">none</option>
+        <option value="merge">{k1} merge</option>
+        <option value="zero">{k1}{z} zero</option>
+      </select>
+    </label>
   </div>
-  <p class="subtitle">Shuffle packed single-precision — dst[0:1] from src1, dst[2:3] from src2</p>
+  <p class="subtitle">Packed single-precision shuffle — per 128-bit lane: <code>dst[0:1] = src1[(imm8&gt;&gt;(k·2))&amp;3]</code>, <code>dst[2:3] = src2[(imm8&gt;&gt;(k·2))&amp;3]</code>. The same imm8 controls every lane.</p>
 
-  <div class="row-lbl"><span class="badge bb">src1</span><span class="hint">click to edit</span></div>
-  <div class="reg-grid" id="src1-grid" style="position:relative"></div>
-
-  <div style="height:6px"></div>
-
-  <div class="row-lbl"><span class="badge bp">src2</span><span class="hint">click to edit</span></div>
-  <div class="reg-grid" id="src2-grid" style="position:relative"></div>
-
-  <div style="position:relative;height:60px;margin:2px 0">
-    <canvas id="acanv" style="width:100%;display:block" height="60"></canvas>
-  </div>
-
-  <div class="row-lbl"><span class="badge bg">dst</span></div>
-  <div class="reg-grid" id="dst-grid"></div>
+  <div id="lanes"></div>
 
   <div style="height:10px"></div>
-
   <div class="row-lbl">
     <span class="badge ba">imm8</span>
-    <span class="hint">left-click: cycle 0–3 · right-click: edit full imm8</span>
+    <span class="hint">left-click: cycle 0–3 &nbsp;·&nbsp; right-click: edit full imm8 &nbsp;·&nbsp; shared across lanes</span>
   </div>
-  <div class="reg-grid" id="imm-grid"></div>
+  <div class="reg-grid" style="--cols:4;position:relative" id="imm-grid"></div>
   <div class="imm-lbl" id="imm-lbl"></div>
 
   <div class="info" id="info">Hover over any cell to inspect the shuffle.</div>
@@ -218,228 +249,514 @@
 </div>
 
 <script>
-const N=4;
-let src1=[0xA0000000,0xA1111111,0xA2222222,0xA3333333];
-let src2=[0xB0000000,0xB1111111,0xB2222222,0xB3333333];
-let imm8=0xE4;
-let hovLane=-1, hovSrc1=-1, hovSrc2=-1;
+const LANE = 4, NFIELDS = 4;
+let N = 4, LANES = 1;
+let kmode = 'off';
+let imm8 = 0xE4;
+let src1, src2, kmask, dstPrev;
+let hovLane = -1, hovSrc1 = -1, hovSrc2 = -1, hovK = -1, hovImm = -1;
+const PREV_FILL = 0xCCCCCCCC;
 
-const PRESETS={identity:0xE4,interleave:0x88,swap:0x4E};
+function hex8(v){ return (v>>>0).toString(16).toUpperCase().padStart(8,'0'); }
+function hex2(v){ return v.toString(16).toUpperCase().padStart(2,'0'); }
+function laneOf(i){ return (i / LANE) | 0; }
+function getField(k){ return (imm8 >> (k*2)) & 3; }
+function setField(k, v){ imm8 = (imm8 & ~(3 << (k*2))) | ((v & 3) << (k*2)); }
+function srcForK(k){ return k < 2 ? 1 : 2; }
 
-function hex8(v){return (v>>>0).toString(16).toUpperCase().padStart(8,'0')}
-function hex2(v){return v.toString(16).toUpperCase().padStart(2,'0')}
-function getField(i){return (imm8>>(i*2))&3}
-function setField(i,v){imm8=(imm8&~(3<<(i*2)))|((v&3)<<(i*2))}
-function dstVal(i){const f=getField(i);return i<2?src1[f]:src2[f]}
-function srcName(i){return i<2?'src1':'src2'}
+function initData(n){
+  N = n; LANES = N / LANE;
+  src1    = Array.from({length:N},(_,i)=>{
+    const l = (i / LANE) | 0, w = i % LANE;
+    return ((0xA0 | l) << 24) | (w * 0x111111);
+  });
+  src2    = Array.from({length:N},(_,i)=>{
+    const l = (i / LANE) | 0, w = i % LANE;
+    return ((0xB0 | l) << 24) | (w * 0x111111);
+  });
+  kmask   = Array.from({length:N},()=> 1);
+  dstPrev = Array.from({length:N},()=> PREV_FILL);
+}
+
+const PRESETS = { identity:0xE4, interleave:0x88, swap:0x4E };
 
 function applyPreset(k){
-  if(PRESETS[k]!==undefined){imm8=PRESETS[k];closePopup();hovLane=-1;hovSrc1=-1;hovSrc2=-1;render();drawArrows()}
+  if(PRESETS[k] === undefined) return;
+  imm8 = PRESETS[k];
+  closePopup(); hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovK=-1; hovImm=-1;
+  render(); drawAllArrows();
 }
 
-function render(){renderSrc1();renderSrc2();renderDst();renderImm();document.getElementById('imm-lbl').textContent='imm8 = 0x'+hex2(imm8)}
+function dstStatus(i){
+  if(kmode !== 'off' && !kmask[i]){
+    return kmode === 'zero' ? { kind:'zero' } : { kind:'keep', val: dstPrev[i] };
+  }
+  const k = i % LANE;
+  const f = getField(k);
+  const base = laneOf(i) * LANE;
+  const v = k < 2 ? src1[base + f] : src2[base + f];
+  return { kind:'val', val: v };
+}
 
-function renderSrc1(){
-  const g=document.getElementById('src1-grid');
-  const old=document.getElementById('active-popup');
-  g.innerHTML='';
-  if(old&&old._popTarget==='src1')g.appendChild(old);
-  for(let i=0;i<N;i++){
-    let lit=hovSrc1===i||(hovLane>=0&&hovLane<2&&getField(hovLane)===i);
-    const el=document.createElement('div');
-    el.className='cell src-cell'+(lit?' lit':'');
-    el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">0x${hex8(src1[i])}</span>`;
-    el.title=`src1[${i}] = 0x${hex8(src1[i])} — click to edit`;
-    el.onclick=()=>openSrcPopup(src1,'src1',i,el,document.getElementById('src1-grid'));
-    el.addEventListener('mouseenter',()=>{hovSrc1=i;hovSrc2=-1;hovLane=-1;render();drawArrows();updateInfo()});
-    el.addEventListener('mouseleave',()=>{hovSrc1=-1;render();drawArrows();resetInfo()});
+function isaForWidth(){
+  if(N === 4)  return kmode === 'off' ? 'SSE'  : 'AVX-512F+VL';
+  if(N === 8)  return kmode === 'off' ? 'AVX'  : 'AVX-512F+VL';
+  return 'AVX-512F';
+}
+function widthLabel(){
+  return N===4 ? '128-bit XMM' : N===8 ? '256-bit YMM' : '512-bit ZMM';
+}
+
+function changeWidth(w){
+  const newN = parseInt(w);
+  if(newN === N) return;
+  initData(newN);
+  rebuildLanes();
+  syncBadges();
+  render(); drawAllArrows();
+}
+
+function changeKmaskMode(m){
+  kmode = m;
+  for(let l=0; l<LANES; l++){
+    const row = document.getElementById('kmask-row-'+l);
+    if(row) row.hidden = (kmode === 'off');
+  }
+  updateKmaskHints();
+  syncBadges();
+  render(); drawAllArrows();
+}
+
+function updateKmaskHints(){
+  const txt = kmode === 'zero'  ? "click to toggle 0/1 — 0 zeroes the output dword"
+            : kmode === 'merge' ? "click to toggle 0/1 — 0 keeps the prior dst dword"
+                                : "click to toggle 0/1 — 1 = element active";
+  document.querySelectorAll('.kmask-hint').forEach(el => el.textContent = txt);
+}
+
+function syncBadges(){
+  document.getElementById('isa-badge').textContent = isaForWidth();
+  document.getElementById('width-badge').textContent = widthLabel();
+}
+
+function rebuildLanes(){
+  const root = document.getElementById('lanes');
+  root.innerHTML = '';
+  for(let l=0; l<LANES; l++){
+    const wrap = document.createElement('div');
+    wrap.className = 'lane';
+    wrap.innerHTML = `
+      ${LANES>1 ? `<div class="lane-header"><span class="lane-tag">Lane ${l}</span><span class="hint">dwords [${l*LANE}..${l*LANE+LANE-1}]</span></div>` : ''}
+      <div class="row-lbl"><span class="badge bb">src1</span><span class="hint">click a dword to edit</span></div>
+      <div class="reg-grid" style="--cols:${LANE};position:relative" id="src1-grid-${l}"></div>
+      <div style="height:4px"></div>
+      <div class="row-lbl"><span class="badge bp">src2</span><span class="hint">click a dword to edit</span></div>
+      <div class="reg-grid" style="--cols:${LANE};position:relative" id="src2-grid-${l}"></div>
+      <div style="position:relative;height:52px;margin:2px 0">
+        <canvas id="arrows-${l}" style="width:100%;display:block" height="52"></canvas>
+      </div>
+      <div class="row-lbl"><span class="badge bg">dst</span></div>
+      <div class="reg-grid" style="--cols:${LANE}" id="dst-grid-${l}"></div>
+      <div class="kmask-row" id="kmask-row-${l}" ${kmode==='off'?'hidden':''}>
+        <div style="height:8px"></div>
+        <div class="row-lbl"><span class="badge bp">k1</span><span class="hint kmask-hint">click to toggle 0/1</span></div>
+        <div class="reg-grid" style="--cols:${LANE}" id="kmask-grid-${l}"></div>
+      </div>
+    `;
+    root.appendChild(wrap);
+  }
+  updateKmaskHints();
+}
+
+function render(){
+  for(let l=0; l<LANES; l++){ renderSrc1Lane(l); renderSrc2Lane(l); renderDstLane(l); renderKmaskLane(l); }
+  renderImm();
+}
+
+function renderSrc1Lane(l){
+  const g = document.getElementById('src1-grid-'+l);
+  const old = document.getElementById('active-popup');
+  g.innerHTML = '';
+  if(old && old._popTarget==='src1' && +old.dataset.lane === l) g.appendChild(old);
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    let lit = hovSrc1 === i;
+    if(hovImm >= 0 && hovImm < 2 && getField(hovImm) === k) lit = true;
+    if(hovLane >= 0 && laneOf(hovLane) === l && (hovLane % LANE) < 2 && getField(hovLane % LANE) === k) lit = true;
+    if(hovK    >= 0 && laneOf(hovK)    === l && (hovK    % LANE) < 2 && getField(hovK    % LANE) === k) lit = true;
+    const el = document.createElement('div');
+    el.className = 'cell src-cell' + (lit ? ' lit' : '');
+    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">0x${hex8(src1[i])}</span>`;
+    el.title = `src1[${i}] = 0x${hex8(src1[i])} — click to edit`;
+    el.onclick = ()=> openSrcPopup('src1', i, el, l);
+    el.addEventListener('mouseenter', ()=>{ hovSrc1=i; hovSrc2=-1; hovLane=-1; hovK=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', ()=>{ hovSrc1=-1; render(); drawAllArrows(); resetInfo(); });
     g.appendChild(el);
   }
 }
 
-function renderSrc2(){
-  const g=document.getElementById('src2-grid');
-  const old=document.getElementById('active-popup');
-  g.innerHTML='';
-  if(old&&old._popTarget==='src2')g.appendChild(old);
-  for(let i=0;i<N;i++){
-    let lit=hovSrc2===i||(hovLane>=0&&hovLane>=2&&getField(hovLane)===i);
-    const el=document.createElement('div');
-    el.className='cell src2-cell'+(lit?' lit':'');
-    el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">0x${hex8(src2[i])}</span>`;
-    el.title=`src2[${i}] = 0x${hex8(src2[i])} — click to edit`;
-    el.onclick=()=>openSrcPopup(src2,'src2',i,el,document.getElementById('src2-grid'));
-    el.addEventListener('mouseenter',()=>{hovSrc2=i;hovSrc1=-1;hovLane=-1;render();drawArrows();updateInfo()});
-    el.addEventListener('mouseleave',()=>{hovSrc2=-1;render();drawArrows();resetInfo()});
+function renderSrc2Lane(l){
+  const g = document.getElementById('src2-grid-'+l);
+  const old = document.getElementById('active-popup');
+  g.innerHTML = '';
+  if(old && old._popTarget==='src2' && +old.dataset.lane === l) g.appendChild(old);
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    let lit = hovSrc2 === i;
+    if(hovImm >= 0 && hovImm >= 2 && getField(hovImm) === k) lit = true;
+    if(hovLane >= 0 && laneOf(hovLane) === l && (hovLane % LANE) >= 2 && getField(hovLane % LANE) === k) lit = true;
+    if(hovK    >= 0 && laneOf(hovK)    === l && (hovK    % LANE) >= 2 && getField(hovK    % LANE) === k) lit = true;
+    const el = document.createElement('div');
+    el.className = 'cell src2-cell' + (lit ? ' lit' : '');
+    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">0x${hex8(src2[i])}</span>`;
+    el.title = `src2[${i}] = 0x${hex8(src2[i])} — click to edit`;
+    el.onclick = ()=> openSrcPopup('src2', i, el, l);
+    el.addEventListener('mouseenter', ()=>{ hovSrc2=i; hovSrc1=-1; hovLane=-1; hovK=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', ()=>{ hovSrc2=-1; render(); drawAllArrows(); resetInfo(); });
     g.appendChild(el);
   }
 }
 
-function renderDst(){
-  const g=document.getElementById('dst-grid');g.innerHTML='';
-  for(let i=0;i<N;i++){
-    const v=dstVal(i);
-    const el=document.createElement('div');
-    el.className='cell dst-val';
-    let hl=hovLane===i;
-    if(hovSrc1>=0&&i<2&&getField(i)===hovSrc1)hl=true;
-    if(hovSrc2>=0&&i>=2&&getField(i)===hovSrc2)hl=true;
-    if(hl)el.style.boxShadow='0 0 0 2.5px #639922';
-    el.innerHTML=`<span class="cell-idx">[${i}]</span><span class="cell-val">0x${hex8(v)}</span>`;
-    el.addEventListener('mouseenter',()=>{hovLane=i;hovSrc1=-1;hovSrc2=-1;render();drawArrows();updateInfo()});
-    el.addEventListener('mouseleave',()=>{hovLane=-1;render();drawArrows();resetInfo()});
+function renderDstLane(l){
+  const g = document.getElementById('dst-grid-'+l);
+  if(!g) return;
+  g.innerHTML = '';
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const s = dstStatus(i);
+    const el = document.createElement('div');
+    let txt, cls;
+    if(s.kind === 'val')      { txt = '0x'+hex8(s.val); cls = 'dst-val'; }
+    else if(s.kind === 'zero'){ txt = '0x00000000';     cls = 'dst-zer'; }
+    else                      { txt = '0x'+hex8(s.val); cls = 'dst-keep'; }
+    el.className = 'cell ' + cls;
+    let lit = hovLane === i || hovK === i;
+    if(hovImm === k) lit = true;
+    if(hovSrc1 >= 0 && laneOf(hovSrc1) === l && k < 2 && getField(k) === (hovSrc1 - base)) lit = true;
+    if(hovSrc2 >= 0 && laneOf(hovSrc2) === l && k >= 2 && getField(k) === (hovSrc2 - base)) lit = true;
+    if(lit) el.style.boxShadow = '0 0 0 2.5px #639922';
+    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${txt}</span>`;
+    el.title = s.kind === 'val'  ? `dst[${i}] = 0x${hex8(s.val)}`
+            :  s.kind === 'zero' ? `dst[${i}] = 0x00000000 (zeroed)`
+            :                      `dst[${i}] = 0x${hex8(s.val)} (kept — k1 mask off)`;
+    el.addEventListener('mouseenter', ()=>{ hovLane=i; hovSrc1=-1; hovSrc2=-1; hovK=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', ()=>{ hovLane=-1; render(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+  }
+}
+
+function renderKmaskLane(l){
+  if(kmode === 'off') return;
+  const g = document.getElementById('kmask-grid-'+l);
+  if(!g) return;
+  g.innerHTML = '';
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const on = !!kmask[i];
+    const active = hovK === i || hovLane === i || hovSrc1 === i || hovSrc2 === i;
+    const el = document.createElement('div');
+    el.className = 'cell km-cell ' + (on ? '' : 'km-off') + (active ? ' active' : '');
+    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${on ? 1 : 0}</span>`;
+    el.title = `k1[${i}] = ${on?1:0} → ${on ? 'pass-through' : (kmode==='zero' ? 'zero' : 'keep prior dst')}`;
+    el.onclick = ()=>{ kmask[i] = on ? 0 : 1; hovK = i; render(); updateInfo(); };
+    el.addEventListener('mouseenter', ()=>{ hovK=i; hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', ()=>{ hovK=-1; render(); drawAllArrows(); resetInfo(); });
     g.appendChild(el);
   }
 }
 
 function renderImm(){
-  const g=document.getElementById('imm-grid');g.innerHTML='';
-  for(let i=0;i<N;i++){
-    const f=getField(i);
-    const fromSrc=i<2?'src1':'src2';
-    const act=hovLane===i||(hovSrc1>=0&&i<2&&getField(i)===hovSrc1)||(hovSrc2>=0&&i>=2&&getField(i)===hovSrc2);
-    const el=document.createElement('div');
-    el.className='cell imm-cell'+(act?' active':'');
-    el.innerHTML=`<span class="cell-idx">${fromSrc} [${i*2+1}:${i*2}]</span><span class="cell-val">${f}</span>`;
-    el.title=`imm8 field ${i} = ${f} → ${fromSrc}[${f}]`;
-    el.onclick=()=>{setField(i,(getField(i)+1)%4);document.getElementById('preset').value='';hovLane=i;hovSrc1=-1;hovSrc2=-1;render();drawArrows();updateInfo()};
-    el.oncontextmenu=(e)=>{e.preventDefault();openImmPopup(el)};
-    el.addEventListener('mouseenter',()=>{hovLane=i;hovSrc1=-1;hovSrc2=-1;render();drawArrows();updateInfo()});
-    el.addEventListener('mouseleave',()=>{hovLane=-1;render();drawArrows();resetInfo()});
+  const g = document.getElementById('imm-grid');
+  g.innerHTML = '';
+  for(let k=0; k<NFIELDS; k++){
+    const f = getField(k);
+    const fromSrc = k < 2 ? 'src1' : 'src2';
+    const active = hovImm === k
+                || (hovLane >= 0 && (hovLane % LANE) === k)
+                || (hovK    >= 0 && (hovK    % LANE) === k);
+    const el = document.createElement('div');
+    el.className = 'cell imm-cell' + (active ? ' active' : '');
+    el.innerHTML = `<span class="cell-idx">${fromSrc} [${k*2+1}:${k*2}]</span><span class="cell-val">${f}</span>`;
+    el.title = `imm8 field ${k} = ${f} → ${fromSrc}[lane·${LANE}+${f}]`;
+    el.onclick = (e)=>{
+      e.preventDefault();
+      setField(k, (getField(k)+1) % 4);
+      document.getElementById('preset').value = '';
+      hovImm = k; hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
+      render(); drawAllArrows(); updateInfo();
+    };
+    el.oncontextmenu = (e)=>{ e.preventDefault(); openImmPopup(el); };
+    el.addEventListener('mouseenter', ()=>{ hovImm=k; hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovK=-1; render(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', ()=>{ hovImm=-1; render(); drawAllArrows(); resetInfo(); });
     g.appendChild(el);
   }
+  document.getElementById('imm-lbl').textContent = 'imm8 = 0x' + hex2(imm8);
 }
 
 function updateInfo(){
-  const box=document.getElementById('info');
-  if(hovSrc1>=0){
-    const lanes=[];
-    for(let i=0;i<2;i++) if(getField(i)===hovSrc1) lanes.push(i);
-    if(lanes.length===0) box.innerHTML=`<strong>src1[${hovSrc1}] = 0x${hex8(src1[hovSrc1])}</strong> — not referenced by dst[0:1]`;
-    else box.innerHTML=`<strong>src1[${hovSrc1}] = 0x${hex8(src1[hovSrc1])}</strong> → copied to dst lane${lanes.length>1?'s':''} <strong>${lanes.join(', ')}</strong>`;
+  const box = document.getElementById('info');
+  if(hovK >= 0){
+    const on = !!kmask[hovK];
+    const l = laneOf(hovK), k = hovK % LANE, f = getField(k);
+    const base = l*LANE;
+    const fromSrc = k < 2 ? 'src1' : 'src2';
+    const arr = k < 2 ? src1 : src2;
+    const srcIdx = base + f;
+    const path = `<strong>imm8 field ${k} = ${f}</strong> → <strong>${fromSrc}[${srcIdx}] = 0x${hex8(arr[srcIdx])}</strong>`;
+    if(on){
+      box.innerHTML = `<strong>k1[${hovK}] = 1</strong> — pass-through · ${path} → <strong>dst[${hovK}] = 0x${hex8(arr[srcIdx])}</strong>`;
+    } else {
+      const tail = kmode === 'zero'
+        ? `<strong>dst[${hovK}] = 0x00000000</strong> (zeroed by {z})`
+        : `<strong>dst[${hovK}] = 0x${hex8(dstPrev[hovK])}</strong> (kept — prior value)`;
+      box.innerHTML = `<strong>k1[${hovK}] = 0</strong> — shuffle suppressed · ${path} → ${tail}`;
+    }
     return;
   }
-  if(hovSrc2>=0){
-    const lanes=[];
-    for(let i=2;i<4;i++) if(getField(i)===hovSrc2) lanes.push(i);
-    if(lanes.length===0) box.innerHTML=`<strong>src2[${hovSrc2}] = 0x${hex8(src2[hovSrc2])}</strong> — not referenced by dst[2:3]`;
-    else box.innerHTML=`<strong>src2[${hovSrc2}] = 0x${hex8(src2[hovSrc2])}</strong> → copied to dst lane${lanes.length>1?'s':''} <strong>${lanes.join(', ')}</strong>`;
+  if(hovImm >= 0){
+    const f = getField(hovImm);
+    const fromSrc = hovImm < 2 ? 'src1' : 'src2';
+    box.innerHTML = `<strong>imm8 field ${hovImm} = ${f}</strong> — in each lane: <strong>dst[lane·${LANE}+${hovImm}] ← ${fromSrc}[lane·${LANE}+${f}]</strong>`;
     return;
   }
-  if(hovLane<0){resetInfo();return}
-  const f=getField(hovLane);
-  if(hovLane<2) box.innerHTML=`<strong>imm8 field ${hovLane} = ${f}</strong> → reads <strong>src1[${f}] = 0x${hex8(src1[f])}</strong> → <strong>dst[${hovLane}] = 0x${hex8(src1[f])}</strong>`;
-  else box.innerHTML=`<strong>imm8 field ${hovLane} = ${f}</strong> → reads <strong>src2[${f}] = 0x${hex8(src2[f])}</strong> → <strong>dst[${hovLane}] = 0x${hex8(src2[f])}</strong>`;
+  if(hovSrc1 >= 0){
+    const l = laneOf(hovSrc1), w = hovSrc1 - l*LANE;
+    const refs = [];
+    for(let k=0; k<2; k++){
+      const i = l*LANE + k;
+      if(getField(k) === w && !(kmode!=='off' && !kmask[i])) refs.push(i);
+    }
+    if(refs.length === 0){
+      box.innerHTML = `<strong>src1[${hovSrc1}] = 0x${hex8(src1[hovSrc1])}</strong> <span class="hint">(lane ${l})</span> — not referenced by dst[${l*LANE}..${l*LANE+1}]`;
+    } else {
+      box.innerHTML = `<strong>src1[${hovSrc1}] = 0x${hex8(src1[hovSrc1])}</strong> <span class="hint">(lane ${l})</span> → copied to dst dword${refs.length>1?'s':''} <strong>${refs.join(', ')}</strong>`;
+    }
+    return;
+  }
+  if(hovSrc2 >= 0){
+    const l = laneOf(hovSrc2), w = hovSrc2 - l*LANE;
+    const refs = [];
+    for(let k=2; k<LANE; k++){
+      const i = l*LANE + k;
+      if(getField(k) === w && !(kmode!=='off' && !kmask[i])) refs.push(i);
+    }
+    if(refs.length === 0){
+      box.innerHTML = `<strong>src2[${hovSrc2}] = 0x${hex8(src2[hovSrc2])}</strong> <span class="hint">(lane ${l})</span> — not referenced by dst[${l*LANE+2}..${l*LANE+3}]`;
+    } else {
+      box.innerHTML = `<strong>src2[${hovSrc2}] = 0x${hex8(src2[hovSrc2])}</strong> <span class="hint">(lane ${l})</span> → copied to dst dword${refs.length>1?'s':''} <strong>${refs.join(', ')}</strong>`;
+    }
+    return;
+  }
+  if(hovLane < 0){ resetInfo(); return; }
+  const i = hovLane, l = laneOf(i), k = i - l*LANE, f = getField(k);
+  const fromSrc = k < 2 ? 'src1' : 'src2';
+  const arr = k < 2 ? src1 : src2;
+  const srcIdx = l*LANE + f;
+  if(kmode !== 'off' && !kmask[i]){
+    const tail = kmode === 'zero'
+      ? `<strong>dst[${i}] = 0x00000000</strong> (zeroed by {z})`
+      : `<strong>dst[${i}] = 0x${hex8(dstPrev[i])}</strong> (kept)`;
+    box.innerHTML = `<strong>k1[${i}] = 0</strong> — shuffle suppressed → ${tail}`;
+  } else {
+    box.innerHTML = `<strong>imm8 field ${k} = ${f}</strong> <span class="hint">(lane ${l})</span> → reads <strong>${fromSrc}[${srcIdx}] = 0x${hex8(arr[srcIdx])}</strong> → <strong>dst[${i}] = 0x${hex8(arr[srcIdx])}</strong>`;
+  }
 }
-function resetInfo(){document.getElementById('info').textContent='Hover over any cell to inspect the shuffle.'}
+function resetInfo(){
+  document.getElementById('info').textContent = 'Hover over any cell to inspect the shuffle.';
+}
 
-function openSrcPopup(arr,name,i,el,grid){
+function openSrcPopup(name, i, el, l){
   closePopup();
-  const gRect=grid.getBoundingClientRect();
-  const eRect=el.getBoundingClientRect();
-  const leftPx=eRect.left+eRect.width/2-gRect.left;
+  const arr = name === 'src1' ? src1 : src2;
+  const g = document.getElementById(name+'-grid-'+l);
+  const gRect = g.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  const leftPx = eRect.left + eRect.width/2 - gRect.left;
 
-  const pop=document.createElement('div');
-  pop.className='popup';pop.id='active-popup';pop._popTarget=name;
-  pop.style.left=leftPx+'px';
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup'; pop._popTarget = name;
+  pop.dataset.lane = l;
+  pop.style.left = leftPx + 'px';
 
-  const lbl=document.createElement('div');lbl.className='popup-lbl';lbl.textContent=`${name}[${i}]`;
-  const inp=document.createElement('input');inp.type='text';inp.value='0x'+hex8(arr[i]);inp.placeholder='0x00000000';
-  inp.onkeydown=e=>{if(e.key==='Enter'){commitSrc(arr,i,inp.value);closePopup()}if(e.key==='Escape')closePopup()};
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = `${name}[${i}]`;
 
-  const row=document.createElement('div');row.className='popup-row';
-  const btnOk=document.createElement('button');btnOk.textContent='Set';btnOk.onclick=()=>{commitSrc(arr,i,inp.value);closePopup()};
-  const btnX=document.createElement('button');btnX.textContent='Cancel';btnX.style.color='var(--text3)';btnX.onclick=closePopup;
-  row.appendChild(btnOk);row.appendChild(btnX);
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x'+hex8(arr[i]); inp.placeholder = '0x00000000';
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitSrc(name, i, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
 
-  const qg=document.createElement('div');qg.className='quick-grid';
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = ()=>{ commitSrc(name, i, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
   [0x00000000,0xFFFFFFFF,0xAAAAAAAA,0x55555555].forEach(v=>{
-    const b=document.createElement('button');b.textContent='0x'+hex8(v);
-    b.onclick=()=>{arr[i]=v;closePopup();render();drawArrows()};qg.appendChild(b);
+    const b = document.createElement('button');
+    b.textContent = '0x'+hex8(v);
+    b.onclick = ()=>{
+      if(name === 'src1') src1[i]=v; else src2[i]=v;
+      closePopup(); render(); drawAllArrows();
+    };
+    qg.appendChild(b);
   });
 
-  pop.appendChild(lbl);pop.appendChild(inp);pop.appendChild(row);pop.appendChild(qg);
-  grid.appendChild(pop);setTimeout(()=>inp.select(),0);
-  function outside(e){if(!pop.contains(e.target)&&e.target!==el)closePopup()}
-  pop._out=outside;document.addEventListener('mousedown',outside);
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  g.appendChild(pop);
+  setTimeout(()=> inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
 }
 
 function openImmPopup(el){
   closePopup();
-  const eRect=el.getBoundingClientRect();
-  const pop=document.createElement('div');
-  pop.className='popup';pop.id='active-popup';pop._popTarget='imm';
-  pop.style.position='fixed';pop.style.left=(eRect.left+eRect.width/2)+'px';
-  pop.style.bottom=(window.innerHeight-eRect.top+6)+'px';pop.style.transform='translateX(-50%)';
+  const eRect = el.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup'; pop._popTarget = 'imm';
+  pop.style.position = 'fixed';
+  pop.style.left = (eRect.left + eRect.width/2) + 'px';
+  pop.style.bottom = (window.innerHeight - eRect.top + 6) + 'px';
+  pop.style.transform = 'translateX(-50%)';
 
-  const lbl=document.createElement('div');lbl.className='popup-lbl';lbl.textContent='imm8';
-  const inp=document.createElement('input');inp.type='text';inp.value='0x'+hex2(imm8);inp.placeholder='0x00–0xFF';
-  inp.onkeydown=e=>{if(e.key==='Enter'){commitImm(inp.value);closePopup()}if(e.key==='Escape')closePopup()};
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = 'imm8';
 
-  const row=document.createElement('div');row.className='popup-row';
-  const btnOk=document.createElement('button');btnOk.textContent='Set';btnOk.onclick=()=>{commitImm(inp.value);closePopup()};
-  const btnX=document.createElement('button');btnX.textContent='Cancel';btnX.style.color='var(--text3)';btnX.onclick=closePopup;
-  row.appendChild(btnOk);row.appendChild(btnX);
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x'+hex2(imm8); inp.placeholder = '0x00–0xFF';
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitImm(inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
 
-  pop.appendChild(lbl);pop.appendChild(inp);pop.appendChild(row);
-  document.body.appendChild(pop);setTimeout(()=>inp.select(),0);
-  function outside(e){if(!pop.contains(e.target)&&e.target!==el)closePopup()}
-  pop._out=outside;document.addEventListener('mousedown',outside);
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = ()=>{ commitImm(inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row);
+  document.body.appendChild(pop);
+  setTimeout(()=> inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
 }
 
-function commitSrc(arr,i,raw){
-  const v=parseInt(raw.trim().replace(/^0x/i,''),16);
-  if(!isNaN(v)&&v>=0&&v<=0xFFFFFFFF){arr[i]=v;render();drawArrows()}
+function commitSrc(name, i, raw){
+  const v = parseInt(raw.trim().replace(/^0x/i,''), 16);
+  if(!isNaN(v) && v>=0 && v<=0xFFFFFFFF){
+    if(name === 'src1') src1[i]=v; else src2[i]=v;
+    render(); drawAllArrows();
+  }
 }
 function commitImm(raw){
-  const v=parseInt(raw.trim().replace(/^0x/i,''),16);
-  if(!isNaN(v)&&v>=0&&v<=0xFF){imm8=v;document.getElementById('preset').value='';render();drawArrows()}
+  const v = parseInt(raw.trim().replace(/^0x/i,''), 16);
+  if(!isNaN(v) && v>=0 && v<=0xFF){
+    imm8 = v;
+    document.getElementById('preset').value = '';
+    render(); drawAllArrows();
+  }
 }
+
 function closePopup(){
-  const p=document.getElementById('active-popup');
-  if(p){document.removeEventListener('mousedown',p._out);p.remove()}
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
 }
 
-function drawArrows(){
-  const canv=document.getElementById('acanv');
-  const ctx=canv.getContext('2d');
-  const dpr=window.devicePixelRatio||1;
-  const W=canv.offsetWidth;
-  const H=60;
-  canv.width=W*dpr;canv.height=H*dpr;
-  ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
+function drawAllArrows(){
+  for(let l=0; l<LANES; l++) drawArrows(l);
+}
 
-  /* Collect (srcGridId, srcIdx, dstIdx, color) tuples */
-  const arrows=[];
-  if(hovLane>=0){
-    const f=getField(hovLane);
-    if(hovLane<2) arrows.push(['src1-grid',f,hovLane,'#378ADD']);
-    else arrows.push(['src2-grid',f,hovLane,'#8B5CF6']);
-  } else if(hovSrc1>=0){
-    for(let i=0;i<2;i++) if(getField(i)===hovSrc1) arrows.push(['src1-grid',hovSrc1,i,'#378ADD']);
-  } else if(hovSrc2>=0){
-    for(let i=2;i<4;i++) if(getField(i)===hovSrc2) arrows.push(['src2-grid',hovSrc2,i,'#8B5CF6']);
+function drawArrows(l){
+  const canv = document.getElementById('arrows-'+l);
+  if(!canv) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canv.offsetWidth;
+  canv.width = W*dpr; canv.height = 52*dpr;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, 52);
+
+  const base = l * LANE;
+  // each entry: [srcName, srcGlobalIdx, dstGlobalIdx]
+  const pairs = [];
+  if(hovImm >= 0){
+    const k = hovImm;
+    const name = k < 2 ? 'src1' : 'src2';
+    pairs.push([name, base + getField(k), base + k]);
+  } else {
+    const ref = hovLane >= 0 ? hovLane : (hovK >= 0 ? hovK : -1);
+    if(ref >= 0 && laneOf(ref) === l){
+      const k = ref - base;
+      const name = k < 2 ? 'src1' : 'src2';
+      pairs.push([name, base + getField(k), ref]);
+    } else if(hovSrc1 >= 0 && laneOf(hovSrc1) === l){
+      const w = hovSrc1 - base;
+      for(let k=0; k<2; k++){
+        if(getField(k) === w) pairs.push(['src1', hovSrc1, base + k]);
+      }
+    } else if(hovSrc2 >= 0 && laneOf(hovSrc2) === l){
+      const w = hovSrc2 - base;
+      for(let k=2; k<LANE; k++){
+        if(getField(k) === w) pairs.push(['src2', hovSrc2, base + k]);
+      }
+    }
   }
-  if(!arrows.length)return;
+  if(!pairs.length) return;
 
-  const dstG=document.getElementById('dst-grid');
-  const canvRect=canv.getBoundingClientRect();
-  function cx(grid,idx){const c=grid.querySelectorAll('.cell')[idx];if(!c)return 0;const r=c.getBoundingClientRect();return r.left+r.width/2-canvRect.left}
+  const dstG  = document.getElementById('dst-grid-'+l);
+  const canvRect = canv.getBoundingClientRect();
+  function cx(grid, globalIdx){
+    const within = globalIdx - base;
+    const c = grid.querySelectorAll('.cell')[within];
+    if(!c) return 0;
+    const r = c.getBoundingClientRect();
+    return r.left + r.width/2 - canvRect.left;
+  }
 
-  for(const [gid,si,di,color] of arrows){
-    const srcG=document.getElementById(gid);
-    const x1=cx(srcG,si),x2=cx(dstG,di);
-    const y1=2,y2=H-4,my=(y1+y2)/2;
-    ctx.beginPath();ctx.moveTo(x1,y1);ctx.bezierCurveTo(x1,my,x2,my,x2,y2);
-    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke();
-    ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-5,y2-8);ctx.lineTo(x2+5,y2-8);ctx.closePath();ctx.fillStyle=color;ctx.fill();
+  for(const [name, si, di] of pairs){
+    const srcG = document.getElementById(name+'-grid-'+l);
+    const color = name === 'src1' ? '#378ADD' : '#8B5CF6';
+    const x1 = cx(srcG, si), x2 = cx(dstG, di);
+    const y1 = 2, y2 = 48, my = (y1+y2)/2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2-5, y2-8);
+    ctx.lineTo(x2+5, y2-8);
+    ctx.closePath();
+    ctx.fillStyle = color; ctx.fill();
   }
 }
 
-const _ip=document.getElementById('preset').value;
-if(PRESETS[_ip]!==undefined)imm8=PRESETS[_ip];
+initData(4);
+rebuildLanes();
+syncBadges();
+const _ip = document.getElementById('preset').value;
+if(PRESETS[_ip] !== undefined) imm8 = PRESETS[_ip];
 render();
-window.addEventListener('resize',drawArrows);
+window.addEventListener('resize', drawAllArrows);
 </script>
 </body>
 </html>
