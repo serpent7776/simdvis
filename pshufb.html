@@ -51,11 +51,11 @@
     border-radius: var(--radius-lg);
     padding: 1.5rem;
     width: 100%;
-    max-width: 800px;
+    max-width: 920px;
   }
 
-  .header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: .25rem; }
-  .title { font-size: 16px; font-weight: 500; }
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
   .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
 
   .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
@@ -195,6 +195,17 @@
     <span class="title">PSHUFB / VPSHUFB</span>
     <span class="badge bb" id="isa-badge">SSSE3</span>
     <span class="badge bz" id="width-badge">128-bit XMM</span>
+    <label class="ctl">
+      Preset:
+      <select id="preset" onchange="applyPreset(this.value)">
+        <option value="identity">Identity</option>
+        <option value="reverse">Reverse (per lane)</option>
+        <option value="broadcast">Broadcast [0]</option>
+        <option value="rotate4">Rotate +4</option>
+        <option value="zeroall">Zero all</option>
+        <option value="evens">Pack evens</option>
+      </select>
+    </label>
     <span style="flex:1"></span>
     <label class="ctl">
       Width:
@@ -210,17 +221,6 @@
         <option value="off">none</option>
         <option value="merge">{k1} merge</option>
         <option value="zero">{k1}{z} zero</option>
-      </select>
-    </label>
-    <label class="ctl">
-      Preset:
-      <select id="preset" onchange="applyPreset(this.value)">
-        <option value="identity">Identity</option>
-        <option value="reverse">Reverse (per lane)</option>
-        <option value="broadcast">Broadcast [0]</option>
-        <option value="rotate4">Rotate +4</option>
-        <option value="zeroall">Zero all</option>
-        <option value="evens">Pack evens</option>
       </select>
     </label>
   </div>
