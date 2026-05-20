@@ -108,11 +108,11 @@
   <div class="vis-list">
     <a class="vis-link" href="pshufb.html">
       <div>
-        <div class="vis-name">PSHUFB</div>
-        <div class="vis-desc">Packed byte shuffle — dst[i] = src[mask[i] &amp; 0x0F]</div>
+        <div class="vis-name">PSHUFB / VPSHUFB</div>
+        <div class="vis-desc">Packed byte shuffle (per 128-bit lane) — dst[i] = src[mask[i] &amp; 0x0F]</div>
         <div class="vis-badges">
-          <span class="badge bb">SSSE3</span>
-          <span class="badge bz">128-bit XMM</span>
+          <span class="badge bb">SSSE3 / AVX2 / AVX-512BW</span>
+          <span class="badge bz">XMM / YMM / ZMM</span>
         </div>
       </div>
       <span class="vis-arrow">&rarr;</span>
