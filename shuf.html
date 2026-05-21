@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SHUF family — Interactive Float Shuffle Visualisers</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 920px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .br { background: #F7C1C1; color: #501313; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .br { background: #791F1F; color: #F7C1C1; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); column-gap: 3px; row-gap: 3px; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 46px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 11px; line-height: 1; }
+
+  .src-cell  { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .src-cell:hover { background: #B5D4F4; }
+  .src-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .src2-cell { background: #EDE6FB; border-color: #8B5CF6; color: #3B1F8C; cursor: pointer; }
+  .src2-cell:hover { background: #D8CCFA; }
+  .src2-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .imm-cell { background: #FAEEDA; border-color: #EF9F27; color: #633806; cursor: pointer; }
+  .imm-cell:hover { background: #FAC775; }
+  .imm-cell.active { box-shadow: 0 0 0 2.5px #EF9F27; transform: scale(1.08); z-index: 3; }
+
+  .km-cell  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 32px; }
+  .km-cell:hover { background: #D8C9F4; }
+  .km-cell.km-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km-cell.km-off:hover { background: #E4E1D5; }
+  .km-cell.active { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  .dst-val  { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-zer  { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: default; }
+  .dst-keep { background: #F4F0FA; border-color: #8367C7; color: #2A1356; cursor: default; }
+
+  @media (prefers-color-scheme: dark) {
+    .src-cell  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .src-cell:hover { background: #185FA5; }
+    .src-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .src2-cell { background: #3B1F8C; border-color: #8B5CF6; color: #EDE6FB; }
+    .src2-cell:hover { background: #4E2EB5; }
+    .src2-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .imm-cell { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .imm-cell:hover { background: #854F0B; }
+    .km-cell  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km-cell:hover { background: #4F2D94; }
+    .km-cell.km-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km-cell.km-off:hover { background: #3A3A38; }
+    .dst-val  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-zer  { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .dst-keep { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .imm-lbl { font-size: 12px; color: var(--text2); font-family: var(--font-mono); margin-top: 6px; text-align: center; }
+
+  .lane { margin-bottom: 6px; }
+  .lane + .lane { padding-top: 10px; border-top: 0.5px dashed var(--border); }
+  .lane-header {
+    font-size: 11px; color: var(--text2); font-family: var(--font-mono);
+    margin: 4px 0 6px; display: flex; align-items: center; gap: 6px;
+  }
+  .lane-header .lane-tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--text2); border: 0.5px solid var(--border);
+  }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+
+  .popup {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 180px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs">
+    <button class="tab" data-instr="shufps">SHUFPS</button>
+    <button class="tab" data-instr="shufpd">SHUFPD</button>
+  </div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <label class="ctl">
+      Preset:
+      <select id="preset" onchange="applyPreset(this.value)"></select>
+    </label>
+    <span style="flex:1"></span>
+    <label class="ctl">
+      Width:
+      <select id="width" onchange="changeWidth(this.value)"></select>
+    </label>
+    <label class="ctl">
+      Mask:
+      <select id="kmode" onchange="changeKmaskMode(this.value)">
+        <option value="off">none</option>
+        <option value="merge">{k1} merge</option>
+        <option value="zero">{k1}{z} zero</option>
+      </select>
+    </label>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div id="lanes"></div>
+
+  <div style="height:10px"></div>
+  <div class="row-lbl">
+    <span class="badge ba">imm8</span>
+    <span class="hint" id="imm-hint"></span>
+  </div>
+  <div class="reg-grid" style="--cols:4;position:relative" id="imm-grid"></div>
+  <div class="imm-lbl" id="imm-lbl"></div>
+
+  <div class="info" id="info">Hover over any cell to inspect the shuffle.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// Two-source shuffles. The imm8 control layout differs:
+//   shufps  — 'fields' mode: 4 × 2-bit fields, one imm8 shared across every lane
+//   shufpd  — 'bits'   mode: N × 1-bit, one bit per output qword
+// whichSrc(k) tells which input register feeds within-lane position k:
+//   shufps: k<2 → src1, k>=2 → src2     (first half from src1, second from src2)
+//   shufpd: k%2===0 → src1, else src2   (alternating per qword)
+const CONFIGS = {
+  shufps: {
+    title: 'SHUFPS / VSHUFPS',
+    pageTitle: 'SHUFPS / VSHUFPS — Interactive Single-Precision Shuffle Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/shufps',
+    subtitle: 'Packed single-precision shuffle — per 128-bit lane: <code>dst[0:1] = src1[(imm8&gt;&gt;(k·2))&amp;3]</code>, <code>dst[2:3] = src2[(imm8&gt;&gt;(k·2))&amp;3]</code>. The same imm8 controls every lane.',
+    elemBytes: 4, lane: 4,
+    widths: [4, 8, 16], kmask: true,
+    bitMode: 'fields', bitsPerCtl: 2,
+    isaForWidth: (N, km) => (N === 4 ? (km==='off'?'SSE' :'AVX-512F+VL')
+                           : N === 8 ? (km==='off'?'AVX' :'AVX-512F+VL')
+                                     : 'AVX-512F'),
+    whichSrc: k => k < 2 ? 1 : 2,
+    presetOptions: [
+      ['identity',   'Identity (0xE4)'],
+      ['interleave', 'Interleave (0x88)'],
+      ['swap',       'Swap (0x4E)'],
+    ],
+    presets: { identity:0xE4, interleave:0x88, swap:0x4E },
+    defaultImm: 0xE4,
+    immHint: 'left-click: cycle 0–3 · right-click: edit full imm8 · shared across lanes',
+    srcInit1: (i, lane) => {
+      const l = (i / lane) | 0, w = i % lane;
+      const v = ((0xA0 | l) << 24) | (w * 0x111111);
+      return (v >>> 0).toString(16).toUpperCase().padStart(8, '0');
+    },
+    srcInit2: (i, lane) => {
+      const l = (i / lane) | 0, w = i % lane;
+      const v = ((0xB0 | l) << 24) | (w * 0x111111);
+      return (v >>> 0).toString(16).toUpperCase().padStart(8, '0');
+    },
+    elemName: 'dword', elemNameP: 'dwords',
+    ctlNoun: 'field',
+  },
+  shufpd: {
+    title: 'SHUFPD / VSHUFPD',
+    pageTitle: 'SHUFPD / VSHUFPD — Interactive Double-Precision Shuffle Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/shufpd',
+    subtitle: 'Shuffle packed doubles — per 128-bit lane: <code>dst[L·2+0] ← src1[L·2 + bit(2L)]</code>, <code>dst[L·2+1] ← src2[L·2 + bit(2L+1)]</code>. Each output qword consumes its own imm8 bit.',
+    elemBytes: 8, lane: 2,
+    widths: [2, 4, 8], kmask: true,
+    bitMode: 'bits', bitsPerCtl: 1,
+    isaForWidth: (N, km) => (N === 2 ? (km==='off'?'SSE2':'AVX-512F+VL')
+                           : N === 4 ? (km==='off'?'AVX' :'AVX-512F+VL')
+                                     : 'AVX-512F'),
+    whichSrc: k => (k % 2) === 0 ? 1 : 2,
+    presetOptions: [
+      ['identity', 'Identity (all 0)'],
+      ['swap',     'Swap (all 1 per lane)'],
+      ['bothhigh', 'Both high (all 1 per lane)'],
+      ['bothlow',  'Both low (all 0 per lane)'],
+    ],
+    /* Preset values are 2-bit "per-lane bases" replicated across all lanes by applyPreset. */
+    presets: { identity:0x0, swap:0x3, bothhigh:0x3, bothlow:0x0 },
+    defaultImm: 0x00,
+    immHint: 'left-click: toggle bit · right-click: edit full imm8 · one bit per output qword',
+    srcInit1: (i, lane) => {
+      const l = (i / lane) | 0, w = i % lane;
+      const tag = (l & 0xF).toString(16).toUpperCase();
+      const v   = ((w * 4) & 0xF).toString(16).toUpperCase();
+      return (tag + v).repeat(8);
+    },
+    srcInit2: (i, lane) => {
+      const l = (i / lane) | 0, w = i % lane;
+      const tag = (l & 0xF).toString(16).toUpperCase();
+      const v   = (((w * 4) + 0xA) & 0xF).toString(16).toUpperCase();
+      return (tag + v).repeat(8);
+    },
+    elemName: 'qword', elemNameP: 'qwords',
+    ctlNoun: 'bit',
+  },
+};
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let CFG;
+let N, LANE, LANES;
+let imm8 = 0;
+let kmode = 'off';
+let src1, src2, kmask, dstPrev;
+let hovLane = -1, hovSrc1 = -1, hovSrc2 = -1, hovK = -1, hovImm = -1;
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hex2(v){ return v.toString(16).toUpperCase().padStart(2, '0'); }
+function zeroStr(){ return '0x' + '0'.repeat(CFG.elemBytes*2); }
+function prevFillStr(){ return 'C'.repeat(CFG.elemBytes*2); }
+function laneOf(i){ return (i / LANE) | 0; }
+function ctlMask(){ return (1 << CFG.bitsPerCtl) - 1; }
+function getCtl(k){ return (imm8 >> (k * CFG.bitsPerCtl)) & ctlMask(); }
+function setCtl(k, v){
+  const w = CFG.bitsPerCtl, m = ctlMask();
+  imm8 = (imm8 & ~(m << (k*w))) | ((v & m) << (k*w));
+}
+// Number of imm-cell controls displayed.
+function ctlCount(){ return CFG.bitMode === 'bits' ? N : 4; }
+// Which control index governs dst[i]?
+function ctlIndexForOutput(i){ return CFG.bitMode === 'bits' ? i : (i % LANE); }
+// For an imm cell k, which within-lane position(s) does it affect?
+//   bits: k itself is a global output index; the within-lane position is k%LANE
+//   fields: k is the within-lane position 0..3 (one cell shared across all lanes)
+function withinLaneOfCtl(k){ return CFG.bitMode === 'bits' ? (k % LANE) : k; }
+// Which dst global indices does this imm cell directly drive?
+function dstIndicesForCtl(k){
+  if(CFG.bitMode === 'bits') return [k];
+  const out = [];
+  for(let l=0; l<LANES; l++) out.push(l*LANE + k);
+  return out;
+}
+
+// Returns the source array & global src-index that feeds dst[i].
+function srcRouteFor(i){
+  const l = laneOf(i), k = i - l*LANE;
+  const src = CFG.whichSrc(k);
+  const f = getCtl(ctlIndexForOutput(i));
+  return { src, srcIdx: l*LANE + f };
+}
+
+function dstStatus(i){
+  if(CFG.kmask && kmode !== 'off' && !kmask[i]){
+    return kmode === 'zero' ? { kind:'zero' } : { kind:'keep', val: dstPrev[i] };
+  }
+  const r = srcRouteFor(i);
+  const arr = r.src === 1 ? src1 : src2;
+  return { kind:'val', val: arr[r.srcIdx] };
+}
+
+function isaLabel(){ return CFG.isaForWidth(N, kmode); }
+function widthLabel(){
+  const bits = N * CFG.elemBytes * 8;
+  return bits === 128 ? '128-bit XMM' : bits === 256 ? '256-bit YMM' : '512-bit ZMM';
+}
+
+// Replicate a per-lane base bit-pattern across all lanes (used by 'bits' mode).
+function broadcastLaneBase(base){
+  const stride = CFG.bitsPerCtl * LANE;
+  const m = (1 << stride) - 1;
+  let im = 0;
+  for(let l=0; l<LANES; l++) im |= (base & m) << (l * stride);
+  return im & 0xFF;
+}
+
+// ─── Init / instruction switching ───────────────────────────────────────────
+function initData(n){
+  N = n; LANES = N / LANE;
+  src1    = Array.from({length:N}, (_,i) => CFG.srcInit1(i, LANE));
+  src2    = Array.from({length:N}, (_,i) => CFG.srcInit2(i, LANE));
+  kmask   = Array.from({length:N}, () => 1);
+  dstPrev = Array.from({length:N}, () => prevFillStr());
+}
+
+function selectInstruction(name){
+  if(!CONFIGS[name]) name = 'shufps';
+  CFG = CONFIGS[name];
+  N = CFG.widths[0]; LANE = CFG.lane; LANES = N / LANE;
+  imm8 = CFG.defaultImm;
+  kmode = 'off';
+  hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
+  closePopup();
+  initData(N);
+
+  document.title = CFG.pageTitle;
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.instr === name));
+  document.getElementById('title').textContent = CFG.title;
+  document.getElementById('subtitle').innerHTML = CFG.subtitle;
+  document.getElementById('isa-ref').href = CFG.isaRef;
+  document.getElementById('imm-hint').textContent = CFG.immHint;
+
+  rebuildPresetOptions();
+  rebuildWidthOptions();
+  document.getElementById('kmode').value = 'off';
+
+  rebuildLanes();
+  syncBadges();
+
+  const def = CFG.presetOptions[0][0];
+  document.getElementById('preset').value = def;
+  applyPreset(def);
+
+  if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+function rebuildPresetOptions(){
+  const sel = document.getElementById('preset');
+  sel.innerHTML = '';
+  for(const [val, label] of CFG.presetOptions){
+    const opt = document.createElement('option');
+    opt.value = val; opt.textContent = label;
+    sel.appendChild(opt);
+  }
+}
+
+function rebuildWidthOptions(){
+  const sel = document.getElementById('width');
+  sel.innerHTML = '';
+  for(const w of CFG.widths){
+    const opt = document.createElement('option');
+    opt.value = w;
+    const bits = w * CFG.elemBytes * 8;
+    opt.textContent = bits === 128 ? 'XMM (128)' : bits === 256 ? 'YMM (256)' : 'ZMM (512)';
+    sel.appendChild(opt);
+  }
+  sel.value = N;
+}
+
+function applyPreset(k){
+  const v = CFG.presets[k];
+  if(v === undefined) return;
+  imm8 = CFG.bitMode === 'bits' ? broadcastLaneBase(v) : v;
+  closePopup();
+  hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
+  render(); drawAllArrows();
+}
+
+function changeWidth(w){
+  const newN = parseInt(w);
+  if(newN === N) return;
+  initData(newN);
+  if(CFG.bitMode === 'bits'){
+    // Preserve the per-lane base pattern.
+    const stride = CFG.bitsPerCtl * LANE;
+    const base = imm8 & ((1 << stride) - 1);
+    imm8 = broadcastLaneBase(base);
+  }
+  rebuildLanes();
+  syncBadges();
+  render(); drawAllArrows();
+}
+
+function changeKmaskMode(m){
+  kmode = m;
+  for(let l=0; l<LANES; l++){
+    const row = document.getElementById('kmask-row-'+l);
+    if(row) row.hidden = (kmode === 'off');
+  }
+  updateKmaskHints();
+  syncBadges();
+  render(); drawAllArrows();
+}
+
+function updateKmaskHints(){
+  const txt = kmode === 'zero'  ? `click to toggle 0/1 — 0 zeroes the output ${CFG.elemName}`
+            : kmode === 'merge' ? `click to toggle 0/1 — 0 keeps the prior dst ${CFG.elemName}`
+                                : "click to toggle 0/1 — 1 = element active";
+  document.querySelectorAll('.kmask-hint').forEach(el => el.textContent = txt);
+}
+
+function syncBadges(){
+  document.getElementById('isa-badge').textContent = isaLabel();
+  document.getElementById('width-badge').textContent = widthLabel();
+}
+
+// ─── Lane / row construction ────────────────────────────────────────────────
+function rebuildLanes(){
+  const root = document.getElementById('lanes');
+  root.innerHTML = '';
+  for(let l=0; l<LANES; l++){
+    const wrap = document.createElement('div');
+    wrap.className = 'lane';
+    wrap.innerHTML = `
+      ${LANES>1 ? `<div class="lane-header"><span class="lane-tag">Lane ${l}</span><span class="hint">${CFG.elemNameP} [${l*LANE}..${l*LANE+LANE-1}]</span></div>` : ''}
+      <div class="row-lbl"><span class="badge bb">src1</span><span class="hint">click a ${CFG.elemName} to edit</span></div>
+      <div class="reg-grid" style="--cols:${LANE};position:relative" id="src1-grid-${l}"></div>
+      <div style="height:4px"></div>
+      <div class="row-lbl"><span class="badge bp">src2</span><span class="hint">click a ${CFG.elemName} to edit</span></div>
+      <div class="reg-grid" style="--cols:${LANE};position:relative" id="src2-grid-${l}"></div>
+      <div style="position:relative;height:52px;margin:2px 0">
+        <canvas id="arrows-${l}" style="width:100%;display:block" height="52"></canvas>
+      </div>
+      <div class="row-lbl"><span class="badge bg">dst</span></div>
+      <div class="reg-grid" style="--cols:${LANE}" id="dst-grid-${l}"></div>
+      <div class="kmask-row" id="kmask-row-${l}" ${kmode==='off'?'hidden':''}>
+        <div style="height:8px"></div>
+        <div class="row-lbl"><span class="badge bp">k1</span><span class="hint kmask-hint">click to toggle 0/1</span></div>
+        <div class="reg-grid" style="--cols:${LANE}" id="kmask-grid-${l}"></div>
+      </div>
+    `;
+    root.appendChild(wrap);
+  }
+  updateKmaskHints();
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  for(let l=0; l<LANES; l++){
+    renderSrcLane('src1', l);
+    renderSrcLane('src2', l);
+    renderDstLane(l);
+    renderKmaskLane(l);
+  }
+  renderImm();
+}
+
+// Is src cell i (in lane l, of arr 'src1'|'src2') the source for any current hover?
+function srcLitFor(arrName, i, l){
+  const srcNum = arrName === 'src1' ? 1 : 2;
+  if(arrName === 'src1' && hovSrc1 === i) return true;
+  if(arrName === 'src2' && hovSrc2 === i) return true;
+  const refs = [];
+  if(hovLane >= 0) refs.push(hovLane);
+  if(hovK    >= 0) refs.push(hovK);
+  for(const r of refs){
+    if(laneOf(r) !== l) continue;
+    const rt = srcRouteFor(r);
+    if(rt.src === srcNum && rt.srcIdx === i) return true;
+  }
+  if(hovImm >= 0){
+    // The imm cell hovImm controls one or more output indices; check whether
+    // any of them route to this src cell.
+    for(const di of dstIndicesForCtl(hovImm)){
+      if(laneOf(di) !== l) continue;
+      const rt = srcRouteFor(di);
+      if(rt.src === srcNum && rt.srcIdx === i) return true;
+    }
+  }
+  return false;
+}
+
+function renderSrcLane(name, l){
+  const g = document.getElementById(name+'-grid-'+l);
+  const old = document.getElementById('active-popup');
+  g.innerHTML = '';
+  if(old && old._popTarget === name && +old.dataset.lane === l) g.appendChild(old);
+  const arr = name === 'src1' ? src1 : src2;
+  const cellClass = name === 'src1' ? 'src-cell' : 'src2-cell';
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const lit = srcLitFor(name, i, l);
+    const el = document.createElement('div');
+    el.className = 'cell ' + cellClass + (lit ? ' lit' : '');
+    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">0x${arr[i]}</span>`;
+    el.title = `${name}[${i}] = 0x${arr[i]} — click to edit`;
+    el.onclick = () => openSrcPopup(name, i, el, l);
+    el.addEventListener('mouseenter', () => {
+      if(name === 'src1'){ hovSrc1 = i; hovSrc2 = -1; }
+      else               { hovSrc2 = i; hovSrc1 = -1; }
+      hovLane = -1; hovK = -1; hovImm = -1;
+      render(); drawAllArrows(); updateInfo();
+    });
+    el.addEventListener('mouseleave', () => {
+      if(name === 'src1') hovSrc1 = -1; else hovSrc2 = -1;
+      render(); drawAllArrows(); resetInfo();
+    });
+    g.appendChild(el);
+  }
+}
+
+function renderDstLane(l){
+  const g = document.getElementById('dst-grid-'+l);
+  if(!g) return;
+  g.innerHTML = '';
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const s = dstStatus(i);
+    const el = document.createElement('div');
+    let txt, cls;
+    if(s.kind === 'val')      { txt = '0x'+s.val;       cls = 'dst-val'; }
+    else if(s.kind === 'zero'){ txt = zeroStr();        cls = 'dst-zer'; }
+    else                      { txt = '0x'+s.val;       cls = 'dst-keep'; }
+    el.className = 'cell ' + cls;
+    let lit = hovLane === i || hovK === i;
+    if(hovImm >= 0 && dstIndicesForCtl(hovImm).includes(i)) lit = true;
+    if(hovSrc1 >= 0 || hovSrc2 >= 0){
+      const rt = srcRouteFor(i);
+      if(rt.src === 1 && rt.srcIdx === hovSrc1) lit = true;
+      if(rt.src === 2 && rt.srcIdx === hovSrc2) lit = true;
+    }
+    if(lit) el.style.boxShadow = '0 0 0 2.5px #639922';
+    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${txt}</span>`;
+    el.title = s.kind === 'val'  ? `dst[${i}] = 0x${s.val}`
+            :  s.kind === 'zero' ? `dst[${i}] = ${zeroStr()} (zeroed)`
+            :                      `dst[${i}] = 0x${s.val} (kept — k1 mask off)`;
+    el.addEventListener('mouseenter', () => { hovLane=i; hovSrc1=-1; hovSrc2=-1; hovK=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovLane=-1; render(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+  }
+}
+
+function renderKmaskLane(l){
+  if(kmode === 'off') return;
+  const g = document.getElementById('kmask-grid-'+l);
+  if(!g) return;
+  g.innerHTML = '';
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const on = !!kmask[i];
+    const active = hovK === i || hovLane === i;
+    const el = document.createElement('div');
+    el.className = 'cell km-cell ' + (on ? '' : 'km-off') + (active ? ' active' : '');
+    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${on ? 1 : 0}</span>`;
+    el.title = `k1[${i}] = ${on?1:0} → ${on ? 'pass-through' : (kmode==='zero' ? 'zero' : 'keep prior dst')}`;
+    el.onclick = () => { kmask[i] = on ? 0 : 1; hovK = i; render(); drawAllArrows(); updateInfo(); };
+    el.addEventListener('mouseenter', () => { hovK=i; hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovK=-1; render(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+  }
+}
+
+function renderImm(){
+  const g = document.getElementById('imm-grid');
+  const count = ctlCount();
+  g.style.setProperty('--cols', count);
+  g.innerHTML = '';
+  for(let k=0; k<count; k++){
+    const v = getCtl(k);
+    const fromSrcNum = CFG.whichSrc(withinLaneOfCtl(k));
+    const fromSrc = fromSrcNum === 1 ? 'src1' : 'src2';
+    // Active if hovering this exact cell, OR hovering a dst/k1 that this cell controls.
+    let active = hovImm === k;
+    const driven = dstIndicesForCtl(k);
+    if(hovLane >= 0 && driven.includes(hovLane)) active = true;
+    if(hovK    >= 0 && driven.includes(hovK))    active = true;
+
+    const el = document.createElement('div');
+    el.className = 'cell imm-cell' + (active ? ' active' : '');
+    const idxLabel = CFG.bitMode === 'bits'
+      ? `${fromSrc} bit ${k}`
+      : `${fromSrc} [bits ${k*2+1}:${k*2}]`;
+    el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val">${v}</span>`;
+    el.title = CFG.bitMode === 'bits'
+      ? `imm8 bit ${k} = ${v} → ${fromSrc}[lane·${LANE}+${v}] feeds dst[${k}]`
+      : `imm8 field ${k} = ${v} → ${fromSrc}[lane·${LANE}+${v}] in every lane`;
+    el.onclick = e => {
+      e.preventDefault();
+      const mod = 1 << CFG.bitsPerCtl;
+      setCtl(k, (getCtl(k)+1) % mod);
+      document.getElementById('preset').value = '';
+      hovImm = k; hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
+      render(); drawAllArrows(); updateInfo();
+    };
+    el.oncontextmenu = e => { e.preventDefault(); openImmPopup(el); };
+    el.addEventListener('mouseenter', () => { hovImm=k; hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovK=-1; render(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovImm=-1; render(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+  }
+  const usedBits = ctlCount() * CFG.bitsPerCtl;
+  const usedNote = CFG.bitMode === 'bits' ? ` (bits [${usedBits-1}:0] used)` : '';
+  document.getElementById('imm-lbl').textContent = 'imm8 = 0x' + hex2(imm8) + usedNote;
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to inspect the shuffle.'; }
+
+function srcArrName(num){ return num === 1 ? 'src1' : 'src2'; }
+function srcArr(num){ return num === 1 ? src1 : src2; }
+
+function updateInfo(){
+  const box = document.getElementById('info');
+
+  if(hovK >= 0){
+    const on = !!kmask[hovK];
+    const r = srcRouteFor(hovK);
+    const arr = srcArr(r.src), name = srcArrName(r.src);
+    const ctlK = ctlIndexForOutput(hovK);
+    const f = getCtl(ctlK);
+    const path = `<strong>imm8 ${CFG.ctlNoun} ${ctlK} = ${f}</strong> → <strong>${name}[${r.srcIdx}] = 0x${arr[r.srcIdx]}</strong>`;
+    if(on){
+      box.innerHTML = `<strong>k1[${hovK}] = 1</strong> — pass-through · ${path} → <strong>dst[${hovK}] = 0x${arr[r.srcIdx]}</strong>`;
+    } else {
+      const tail = kmode === 'zero'
+        ? `<strong>dst[${hovK}] = ${zeroStr()}</strong> (zeroed by {z})`
+        : `<strong>dst[${hovK}] = 0x${dstPrev[hovK]}</strong> (kept — prior value)`;
+      box.innerHTML = `<strong>k1[${hovK}] = 0</strong> — shuffle suppressed · ${path} → ${tail}`;
+    }
+    return;
+  }
+
+  if(hovImm >= 0){
+    const v = getCtl(hovImm);
+    const fromSrcNum = CFG.whichSrc(withinLaneOfCtl(hovImm));
+    const name = srcArrName(fromSrcNum);
+    if(CFG.bitMode === 'bits'){
+      const l = laneOf(hovImm);
+      box.innerHTML = `<strong>imm8 bit ${hovImm} = ${v}</strong> → <strong>dst[${hovImm}] ← ${name}[${l*LANE + v}]</strong>`;
+    } else {
+      box.innerHTML = `<strong>imm8 field ${hovImm} = ${v}</strong> — in each lane: <strong>dst[lane·${LANE}+${hovImm}] ← ${name}[lane·${LANE}+${v}]</strong>`;
+    }
+    return;
+  }
+
+  const hovSrc = hovSrc1 >= 0 ? hovSrc1 : hovSrc2;
+  const hovSrcNum = hovSrc1 >= 0 ? 1 : (hovSrc2 >= 0 ? 2 : 0);
+  if(hovSrcNum){
+    const l = laneOf(hovSrc), arr = srcArr(hovSrcNum), name = srcArrName(hovSrcNum);
+    const refs = [];
+    // Walk every dst that draws from this source register and lane; record the
+    // ones whose route lands on the hovered src index (and that aren't k1-masked out).
+    for(let i=l*LANE; i<l*LANE+LANE; i++){
+      if(CFG.kmask && kmode !== 'off' && !kmask[i]) continue;
+      const rt = srcRouteFor(i);
+      if(rt.src === hovSrcNum && rt.srcIdx === hovSrc) refs.push(i);
+    }
+    const laneNote = LANES > 1 ? ` <span class="hint">(lane ${l})</span>` : '';
+    if(refs.length === 0){
+      box.innerHTML = `<strong>${name}[${hovSrc}] = 0x${arr[hovSrc]}</strong>${laneNote} — not referenced by any dst ${CFG.elemName} in this lane`;
+    } else {
+      box.innerHTML = `<strong>${name}[${hovSrc}] = 0x${arr[hovSrc]}</strong>${laneNote} → copied to dst ${CFG.elemName}${refs.length>1?'s':''} <strong>${refs.join(', ')}</strong>`;
+    }
+    return;
+  }
+
+  if(hovLane < 0){ resetInfo(); return; }
+
+  const i = hovLane, l = laneOf(i);
+  if(CFG.kmask && kmode !== 'off' && !kmask[i]){
+    const tail = kmode === 'zero'
+      ? `<strong>dst[${i}] = ${zeroStr()}</strong> (zeroed by {z})`
+      : `<strong>dst[${i}] = 0x${dstPrev[i]}</strong> (kept)`;
+    box.innerHTML = `<strong>k1[${i}] = 0</strong> — shuffle suppressed → ${tail}`;
+    return;
+  }
+  const r = srcRouteFor(i);
+  const arr = srcArr(r.src), name = srcArrName(r.src);
+  const ctlK = ctlIndexForOutput(i);
+  const f = getCtl(ctlK);
+  const laneNote = LANES > 1 ? ` <span class="hint">(lane ${l})</span>` : '';
+  box.innerHTML = `<strong>imm8 ${CFG.ctlNoun} ${ctlK} = ${f}</strong>${laneNote} → reads <strong>${name}[${r.srcIdx}] = 0x${arr[r.srcIdx]}</strong> → <strong>dst[${i}] = 0x${arr[r.srcIdx]}</strong>`;
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openSrcPopup(name, i, el, l){
+  closePopup();
+  const arr = name === 'src1' ? src1 : src2;
+  const g = document.getElementById(name+'-grid-'+l);
+  const gRect = g.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  const leftPx = eRect.left + eRect.width/2 - gRect.left;
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup'; pop._popTarget = name;
+  pop.dataset.lane = l;
+  pop.style.left = leftPx + 'px';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = `${name}[${i}]`;
+
+  const inp = document.createElement('input');
+  const placeholder = '0x' + '0'.repeat(CFG.elemBytes*2);
+  inp.type = 'text'; inp.value = '0x' + arr[i]; inp.placeholder = placeholder;
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitSrc(name, i, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitSrc(name, i, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  for(const b of [0x00, 0xFF, 0xAA, 0x55]){
+    const s = hex2(b).repeat(CFG.elemBytes);
+    const btn = document.createElement('button');
+    btn.textContent = '0x' + s;
+    btn.onclick = () => {
+      if(name === 'src1') src1[i] = s; else src2[i] = s;
+      closePopup(); render(); drawAllArrows();
+    };
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  g.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function openImmPopup(el){
+  closePopup();
+  const eRect = el.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup'; pop._popTarget = 'imm';
+  pop.style.position = 'fixed';
+  pop.style.left = (eRect.left + eRect.width/2) + 'px';
+  pop.style.bottom = (window.innerHeight - eRect.top + 6) + 'px';
+  pop.style.transform = 'translateX(-50%)';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = 'imm8';
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x' + hex2(imm8); inp.placeholder = '0x00–0xFF';
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitImm(inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitImm(inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row);
+  document.body.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function commitSrc(name, i, raw){
+  const s = raw.trim().replace(/^0x/i, '').toUpperCase();
+  if(!/^[0-9A-F]*$/.test(s) || s.length === 0 || s.length > CFG.elemBytes*2) return;
+  const v = s.padStart(CFG.elemBytes*2, '0');
+  if(name === 'src1') src1[i] = v; else src2[i] = v;
+  render(); drawAllArrows();
+}
+function commitImm(raw){
+  const v = parseInt(raw.trim().replace(/^0x/i, ''), 16);
+  if(!isNaN(v) && v >= 0 && v <= 0xFF){
+    imm8 = v;
+    document.getElementById('preset').value = '';
+    render(); drawAllArrows();
+  }
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+function drawAllArrows(){ for(let l=0; l<LANES; l++) drawArrows(l); }
+
+function drawArrows(l){
+  const canv = document.getElementById('arrows-'+l);
+  if(!canv) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canv.offsetWidth;
+  canv.width = W*dpr; canv.height = 52*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, 52);
+
+  const base = l * LANE;
+  // Entries: [srcName, srcGlobalIdx, dstGlobalIdx]
+  const pairs = [];
+
+  if(hovImm >= 0){
+    for(const di of dstIndicesForCtl(hovImm)){
+      if(laneOf(di) !== l) continue;
+      const rt = srcRouteFor(di);
+      pairs.push([rt.src === 1 ? 'src1' : 'src2', rt.srcIdx, di]);
+    }
+  } else {
+    const ref = hovLane >= 0 ? hovLane : (hovK >= 0 ? hovK : -1);
+    if(ref >= 0 && laneOf(ref) === l){
+      const rt = srcRouteFor(ref);
+      pairs.push([rt.src === 1 ? 'src1' : 'src2', rt.srcIdx, ref]);
+    } else if(hovSrc1 >= 0 && laneOf(hovSrc1) === l){
+      for(let i=base; i<base+LANE; i++){
+        const rt = srcRouteFor(i);
+        if(rt.src === 1 && rt.srcIdx === hovSrc1) pairs.push(['src1', hovSrc1, i]);
+      }
+    } else if(hovSrc2 >= 0 && laneOf(hovSrc2) === l){
+      for(let i=base; i<base+LANE; i++){
+        const rt = srcRouteFor(i);
+        if(rt.src === 2 && rt.srcIdx === hovSrc2) pairs.push(['src2', hovSrc2, i]);
+      }
+    }
+  }
+  if(!pairs.length) return;
+
+  const dstG  = document.getElementById('dst-grid-'+l);
+  const canvRect = canv.getBoundingClientRect();
+  function cx(grid, globalIdx){
+    const within = globalIdx - base;
+    const c = grid.querySelectorAll('.cell')[within];
+    if(!c) return 0;
+    const r = c.getBoundingClientRect();
+    return r.left + r.width/2 - canvRect.left;
+  }
+
+  for(const [name, si, di] of pairs){
+    const srcG = document.getElementById(name+'-grid-'+l);
+    const color = name === 'src1' ? '#378ADD' : '#8B5CF6';
+    const x1 = cx(srcG, si), x2 = cx(dstG, di);
+    const y1 = 2, y2 = 48, my = (y1+y2)/2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 5, y2 - 8);
+    ctx.lineTo(x2 + 5, y2 - 8);
+    ctx.closePath();
+    ctx.fillStyle = color; ctx.fill();
+  }
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => selectInstruction(t.dataset.instr));
+});
+window.addEventListener('hashchange', () => {
+  const name = location.hash.replace(/^#/, '');
+  if(CONFIGS[name] && (!CFG || CFG !== CONFIGS[name])) selectInstruction(name);
+});
+window.addEventListener('resize', drawAllArrows);
+
+const initialName = (CONFIGS[location.hash.replace(/^#/, '')] ? location.hash.slice(1) : 'shufps');
+selectInstruction(initialName);
+</script>
+</body>
+</html>

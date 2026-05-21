@@ -106,78 +106,23 @@
   <p class="subtitle">Interactive visualisers for x86 SIMD instructions</p>
 
   <div class="vis-list">
-    <a class="vis-link" href="pshufb.html">
+    <a class="vis-link" href="pshuf.html">
       <div>
-        <div class="vis-name">PSHUFB / VPSHUFB</div>
-        <div class="vis-desc">Packed byte shuffle (per 128-bit lane) — dst[i] = src[mask[i] &amp; 0x0F]</div>
+        <div class="vis-name">PSHUFB / PSHUFW / PSHUFD / PSHUFLW / PSHUFHW</div>
+        <div class="vis-desc">Integer shuffles — byte, word, dword (per 128-bit lane, mask or imm8 controlled)</div>
         <div class="vis-badges">
-          <span class="badge bb">SSSE3 / AVX2 / AVX-512BW</span>
-          <span class="badge bz">XMM / YMM / ZMM</span>
+          <span class="badge bb">SSE / SSE2 / SSSE3 / AVX2 / AVX-512</span>
+          <span class="badge bz">MMX / XMM / YMM / ZMM</span>
         </div>
       </div>
       <span class="vis-arrow">&rarr;</span>
     </a>
-    <a class="vis-link" href="pshufw.html">
+    <a class="vis-link" href="shuf.html">
       <div>
-        <div class="vis-name">PSHUFW</div>
-        <div class="vis-desc">Packed word shuffle (MMX) — dst[i] = src[imm8_field(i)]</div>
+        <div class="vis-name">SHUFPS / SHUFPD</div>
+        <div class="vis-desc">Float shuffles — single / double precision, two source registers, imm8 controlled</div>
         <div class="vis-badges">
-          <span class="badge bb">SSE</span>
-          <span class="badge bz">64-bit MMX</span>
-        </div>
-      </div>
-      <span class="vis-arrow">&rarr;</span>
-    </a>
-    <a class="vis-link" href="pshufd.html">
-      <div>
-        <div class="vis-name">PSHUFD / VPSHUFD</div>
-        <div class="vis-desc">Packed dword shuffle (per 128-bit lane) — dst[i] = src[imm8_field(i)]</div>
-        <div class="vis-badges">
-          <span class="badge bb">SSE2 / AVX2 / AVX-512F</span>
-          <span class="badge bz">XMM / YMM / ZMM</span>
-        </div>
-      </div>
-      <span class="vis-arrow">&rarr;</span>
-    </a>
-    <a class="vis-link" href="pshuflw.html">
-      <div>
-        <div class="vis-name">PSHUFLW / VPSHUFLW</div>
-        <div class="vis-desc">Packed low-word shuffle (per 128-bit lane) — lower 4 words by imm8, upper 4 copied</div>
-        <div class="vis-badges">
-          <span class="badge bb">SSE2 / AVX2 / AVX-512BW</span>
-          <span class="badge bz">XMM / YMM / ZMM</span>
-        </div>
-      </div>
-      <span class="vis-arrow">&rarr;</span>
-    </a>
-    <a class="vis-link" href="pshufhw.html">
-      <div>
-        <div class="vis-name">PSHUFHW / VPSHUFHW</div>
-        <div class="vis-desc">Packed high-word shuffle (per 128-bit lane) — upper 4 words by imm8, lower 4 copied</div>
-        <div class="vis-badges">
-          <span class="badge bb">SSE2 / AVX2 / AVX-512BW</span>
-          <span class="badge bz">XMM / YMM / ZMM</span>
-        </div>
-      </div>
-      <span class="vis-arrow">&rarr;</span>
-    </a>
-    <a class="vis-link" href="shufps.html">
-      <div>
-        <div class="vis-name">SHUFPS / VSHUFPS</div>
-        <div class="vis-desc">Shuffle packed singles (per 128-bit lane) — dst[0:1] from src1, dst[2:3] from src2</div>
-        <div class="vis-badges">
-          <span class="badge bb">SSE / AVX / AVX-512F</span>
-          <span class="badge bz">XMM / YMM / ZMM</span>
-        </div>
-      </div>
-      <span class="vis-arrow">&rarr;</span>
-    </a>
-    <a class="vis-link" href="shufpd.html">
-      <div>
-        <div class="vis-name">SHUFPD / VSHUFPD</div>
-        <div class="vis-desc">Shuffle packed doubles (per 128-bit lane) — one imm8 bit per output qword selects src1 or src2</div>
-        <div class="vis-badges">
-          <span class="badge bb">SSE2 / AVX / AVX-512F</span>
+          <span class="badge bb">SSE / SSE2 / AVX / AVX-512F</span>
           <span class="badge bz">XMM / YMM / ZMM</span>
         </div>
       </div>
