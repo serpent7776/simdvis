@@ -348,6 +348,7 @@ let imm8 = 0;
 let kmode = 'off';
 let src1, src2, kmask, dstPrev;
 let hovLane = -1, hovSrc1 = -1, hovSrc2 = -1, hovK = -1, hovImm = -1;
+let cells;  // { src1:[[…]], src2:[[…]], dst:[[…]], k1:[[…]], imm:[…] }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function hex2(v){ return v.toString(16).toUpperCase().padStart(2, '0'); }
@@ -523,9 +524,21 @@ function syncBadges(){
 }
 
 // ─── Lane / row construction ────────────────────────────────────────────────
+// Cells are built once per rebuildLanes() and cached in `cells`. After that,
+// render() updates only the data-dependent attributes of existing cells, and
+// refreshHover() updates only the hover-affected ones.
+function makeCell(idxLabel){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span>`;
+  el._val = el.lastChild;
+  return el;
+}
+
 function rebuildLanes(){
+  closePopup();
   const root = document.getElementById('lanes');
   root.innerHTML = '';
+  cells = { src1: [], src2: [], dst: [], k1: [], imm: [] };
   for(let l=0; l<LANES; l++){
     const wrap = document.createElement('div');
     wrap.className = 'lane';
@@ -548,22 +561,100 @@ function rebuildLanes(){
       </div>
     `;
     root.appendChild(wrap);
+    cells.src1[l] = buildSrcCells('src1', l);
+    cells.src2[l] = buildSrcCells('src2', l);
+    cells.dst[l]  = buildDstCells(l);
+    cells.k1[l]   = buildK1Cells(l);
   }
+  cells.imm = buildImmCells();
   updateKmaskHints();
 }
 
-// ─── Rendering ──────────────────────────────────────────────────────────────
-function render(){
-  for(let l=0; l<LANES; l++){
-    renderSrcLane('src1', l);
-    renderSrcLane('src2', l);
-    renderDstLane(l);
-    renderKmaskLane(l);
+function buildSrcCells(name, l){
+  const g = document.getElementById(name+'-grid-'+l);
+  const cellClass = name === 'src1' ? 'src-cell' : 'src2-cell';
+  const arr = [];
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const el = makeCell(`[${i}]`);
+    el.className = 'cell ' + cellClass;
+    el.onclick = () => openSrcPopup(name, i, el, l);
+    el.addEventListener('mouseenter', () => {
+      if(name === 'src1'){ hovSrc1 = i; hovSrc2 = -1; }
+      else               { hovSrc2 = i; hovSrc1 = -1; }
+      hovLane = -1; hovK = -1; hovImm = -1;
+      refreshHover(); drawAllArrows(); updateInfo();
+    });
+    el.addEventListener('mouseleave', () => {
+      if(name === 'src1') hovSrc1 = -1; else hovSrc2 = -1;
+      refreshHover(); drawAllArrows(); resetInfo();
+    });
+    g.appendChild(el);
+    arr.push(el);
   }
-  renderImm();
+  return arr;
 }
 
-// Is src cell i (in lane l, of arr 'src1'|'src2') the source for any current hover?
+function buildDstCells(l){
+  const g = document.getElementById('dst-grid-'+l);
+  const arr = [];
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const el = makeCell(`[${i}]`);
+    el.addEventListener('mouseenter', () => { hovLane=i; hovSrc1=-1; hovSrc2=-1; hovK=-1; hovImm=-1; refreshHover(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovLane=-1; refreshHover(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+    arr.push(el);
+  }
+  return arr;
+}
+
+function buildK1Cells(l){
+  const g = document.getElementById('kmask-grid-'+l);
+  const arr = [];
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const el = makeCell(`[${i}]`);
+    el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; hovK = i; render(); drawAllArrows(); updateInfo(); };
+    el.addEventListener('mouseenter', () => { hovK=i; hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovImm=-1; refreshHover(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovK=-1; refreshHover(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+    arr.push(el);
+  }
+  return arr;
+}
+
+function buildImmCells(){
+  const g = document.getElementById('imm-grid');
+  g.innerHTML = '';
+  const count = ctlCount();
+  const arr = [];
+  for(let k=0; k<count; k++){
+    const fromSrcNum = CFG.whichSrc(withinLaneOfCtl(k));
+    const fromSrc = fromSrcNum === 1 ? 'src1' : 'src2';
+    const idxLabel = CFG.bitMode === 'bits' ? `${fromSrc} bit ${k}` : `${fromSrc} [bits ${k*2+1}:${k*2}]`;
+    const el = makeCell(idxLabel);
+    el.onclick = e => {
+      e.preventDefault();
+      const mod = 1 << CFG.bitsPerCtl;
+      setCtl(k, (getCtl(k)+1) % mod);
+      document.getElementById('preset').value = '';
+      hovImm = k; hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
+      render(); drawAllArrows(); updateInfo();
+    };
+    el.oncontextmenu = e => { e.preventDefault(); openImmPopup(el); };
+    el.addEventListener('mouseenter', () => { hovImm=k; hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovK=-1; refreshHover(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovImm=-1; refreshHover(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+    arr.push(el);
+  }
+  return arr;
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
 function srcLitFor(arrName, i, l){
   const srcNum = arrName === 'src1' ? 1 : 2;
   if(arrName === 'src1' && hovSrc1 === i) return true;
@@ -577,8 +668,6 @@ function srcLitFor(arrName, i, l){
     if(rt.src === srcNum && rt.srcIdx === i) return true;
   }
   if(hovImm >= 0){
-    // The imm cell hovImm controls one or more output indices; check whether
-    // any of them route to this src cell.
     for(const di of dstIndicesForCtl(hovImm)){
       if(laneOf(di) !== l) continue;
       const rt = srcRouteFor(di);
@@ -588,125 +677,86 @@ function srcLitFor(arrName, i, l){
   return false;
 }
 
-function renderSrcLane(name, l){
-  const g = document.getElementById(name+'-grid-'+l);
-  const old = document.getElementById('active-popup');
-  g.innerHTML = '';
-  if(old && old._popTarget === name && +old.dataset.lane === l) g.appendChild(old);
-  const arr = name === 'src1' ? src1 : src2;
-  const cellClass = name === 'src1' ? 'src-cell' : 'src2-cell';
-  const base = l * LANE;
-  for(let k=0; k<LANE; k++){
-    const i = base + k;
-    const lit = srcLitFor(name, i, l);
-    const el = document.createElement('div');
-    el.className = 'cell ' + cellClass + (lit ? ' lit' : '');
-    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">0x${arr[i]}</span>`;
-    el.title = `${name}[${i}] = 0x${arr[i]} — click to edit`;
-    el.onclick = () => openSrcPopup(name, i, el, l);
-    el.addEventListener('mouseenter', () => {
-      if(name === 'src1'){ hovSrc1 = i; hovSrc2 = -1; }
-      else               { hovSrc2 = i; hovSrc1 = -1; }
-      hovLane = -1; hovK = -1; hovImm = -1;
-      render(); drawAllArrows(); updateInfo();
-    });
-    el.addEventListener('mouseleave', () => {
-      if(name === 'src1') hovSrc1 = -1; else hovSrc2 = -1;
-      render(); drawAllArrows(); resetInfo();
-    });
-    g.appendChild(el);
-  }
-}
+function render(){
+  for(let l=0; l<LANES; l++){
+    const base = l * LANE;
+    for(let k=0; k<LANE; k++){
+      const i = base + k;
 
-function renderDstLane(l){
-  const g = document.getElementById('dst-grid-'+l);
-  g.innerHTML = '';
-  const base = l * LANE;
-  for(let k=0; k<LANE; k++){
-    const i = base + k;
-    const s = dstStatus(i);
-    const el = document.createElement('div');
-    let txt, cls;
-    if(s.kind === 'val')      { txt = '0x'+s.val;       cls = 'dst-val'; }
-    else if(s.kind === 'zero'){ txt = zeroStr();        cls = 'dst-zer'; }
-    else                      { txt = '0x'+s.val;       cls = 'dst-keep'; }
-    el.className = 'cell ' + cls;
-    let lit = hovLane === i || hovK === i;
-    if(hovImm >= 0 && dstIndicesForCtl(hovImm).includes(i)) lit = true;
-    if(hovSrc1 >= 0 || hovSrc2 >= 0){
-      const rt = srcRouteFor(i);
-      if(rt.src === 1 && rt.srcIdx === hovSrc1) lit = true;
-      if(rt.src === 2 && rt.srcIdx === hovSrc2) lit = true;
+      const s1 = cells.src1[l][k];
+      s1.className = 'cell src-cell';
+      s1._val.textContent = '0x' + src1[i];
+      s1.title = `src1[${i}] = 0x${src1[i]} — click to edit`;
+
+      const s2 = cells.src2[l][k];
+      s2.className = 'cell src2-cell';
+      s2._val.textContent = '0x' + src2[i];
+      s2.title = `src2[${i}] = 0x${src2[i]} — click to edit`;
+
+      const dEl = cells.dst[l][k];
+      const s = dstStatus(i);
+      let dtxt, dcls;
+      if(s.kind === 'val')      { dtxt = '0x'+s.val; dcls = 'dst-val'; }
+      else if(s.kind === 'zero'){ dtxt = zeroStr();  dcls = 'dst-zer'; }
+      else                      { dtxt = '0x'+s.val; dcls = 'dst-keep'; }
+      dEl.className = 'cell ' + dcls;
+      dEl._val.textContent = dtxt;
+      dEl.title = s.kind === 'val'  ? `dst[${i}] = 0x${s.val}`
+              :  s.kind === 'zero' ? `dst[${i}] = ${zeroStr()} (zeroed)`
+              :                      `dst[${i}] = 0x${s.val} (kept — k1 mask off)`;
+
+      const kEl = cells.k1[l][k];
+      const on = !!kmask[i];
+      kEl.className = 'cell km-cell' + (on ? '' : ' km-off');
+      kEl._val.textContent = on ? 1 : 0;
+      kEl.title = `k1[${i}] = ${on?1:0} → ${on ? 'pass-through' : (kmode==='zero' ? 'zero' : 'keep prior dst')}`;
     }
-    if(lit) el.style.boxShadow = '0 0 0 2.5px #639922';
-    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${txt}</span>`;
-    el.title = s.kind === 'val'  ? `dst[${i}] = 0x${s.val}`
-            :  s.kind === 'zero' ? `dst[${i}] = ${zeroStr()} (zeroed)`
-            :                      `dst[${i}] = 0x${s.val} (kept — k1 mask off)`;
-    el.addEventListener('mouseenter', () => { hovLane=i; hovSrc1=-1; hovSrc2=-1; hovK=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
-    el.addEventListener('mouseleave', () => { hovLane=-1; render(); drawAllArrows(); resetInfo(); });
-    g.appendChild(el);
   }
-}
-
-function renderKmaskLane(l){
-  if(kmode === 'off') return;
-  const g = document.getElementById('kmask-grid-'+l);
-  g.innerHTML = '';
-  const base = l * LANE;
-  for(let k=0; k<LANE; k++){
-    const i = base + k;
-    const on = !!kmask[i];
-    const active = hovK === i || hovLane === i;
-    const el = document.createElement('div');
-    el.className = 'cell km-cell ' + (on ? '' : 'km-off') + (active ? ' active' : '');
-    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${on ? 1 : 0}</span>`;
-    el.title = `k1[${i}] = ${on?1:0} → ${on ? 'pass-through' : (kmode==='zero' ? 'zero' : 'keep prior dst')}`;
-    el.onclick = () => { kmask[i] = on ? 0 : 1; hovK = i; render(); drawAllArrows(); updateInfo(); };
-    el.addEventListener('mouseenter', () => { hovK=i; hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
-    el.addEventListener('mouseleave', () => { hovK=-1; render(); drawAllArrows(); resetInfo(); });
-    g.appendChild(el);
-  }
-}
-
-function renderImm(){
-  const g = document.getElementById('imm-grid');
-  const count = ctlCount();
-  g.innerHTML = '';
-  for(let k=0; k<count; k++){
+  for(let k=0; k<cells.imm.length; k++){
+    const el = cells.imm[k];
     const v = getCtl(k);
     const fromSrcNum = CFG.whichSrc(withinLaneOfCtl(k));
     const fromSrc = fromSrcNum === 1 ? 'src1' : 'src2';
-    let active = hovImm === k;
-    const driven = dstIndicesForCtl(k);
-    if(hovLane >= 0 && driven.includes(hovLane)) active = true;
-    if(hovK    >= 0 && driven.includes(hovK))    active = true;
-
-    const el = document.createElement('div');
-    el.className = 'cell imm-cell' + (active ? ' active' : '');
-    const idxLabel = CFG.bitMode === 'bits'
-      ? `${fromSrc} bit ${k}`
-      : `${fromSrc} [bits ${k*2+1}:${k*2}]`;
-    el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val">${v}</span>`;
+    el.className = 'cell imm-cell';
+    el._val.textContent = v;
     el.title = CFG.bitMode === 'bits'
       ? `imm8 bit ${k} = ${v} → ${fromSrc}[lane·${LANE}+${v}] feeds dst[${k}]`
       : `imm8 field ${k} = ${v} → ${fromSrc}[lane·${LANE}+${v}] in every lane`;
-    el.onclick = e => {
-      e.preventDefault();
-      const mod = 1 << CFG.bitsPerCtl;
-      setCtl(k, (getCtl(k)+1) % mod);
-      document.getElementById('preset').value = '';
-      hovImm = k; hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
-      render(); drawAllArrows(); updateInfo();
-    };
-    el.oncontextmenu = e => { e.preventDefault(); openImmPopup(el); };
-    el.addEventListener('mouseenter', () => { hovImm=k; hovLane=-1; hovSrc1=-1; hovSrc2=-1; hovK=-1; render(); drawAllArrows(); updateInfo(); });
-    el.addEventListener('mouseleave', () => { hovImm=-1; render(); drawAllArrows(); resetInfo(); });
-    g.appendChild(el);
   }
   const usedBits = ctlCount() * CFG.bitsPerCtl;
   const usedNote = CFG.bitMode === 'bits' ? ` (bits [${usedBits-1}:0] used)` : '';
   document.getElementById('imm-lbl').textContent = 'imm8 = 0x' + hex2(imm8) + usedNote;
+  refreshHover();
+}
+
+function refreshHover(){
+  for(let l=0; l<LANES; l++){
+    const base = l * LANE;
+    for(let k=0; k<LANE; k++){
+      const i = base + k;
+      cells.src1[l][k].classList.toggle('lit', srcLitFor('src1', i, l));
+      cells.src2[l][k].classList.toggle('lit', srcLitFor('src2', i, l));
+
+      let lit = hovLane === i || hovK === i;
+      if(hovImm >= 0 && dstIndicesForCtl(hovImm).includes(i)) lit = true;
+      if(hovSrc1 >= 0 || hovSrc2 >= 0){
+        const rt = srcRouteFor(i);
+        if(rt.src === 1 && rt.srcIdx === hovSrc1) lit = true;
+        if(rt.src === 2 && rt.srcIdx === hovSrc2) lit = true;
+      }
+      cells.dst[l][k].style.boxShadow = lit ? '0 0 0 2.5px #639922' : '';
+
+      const kActive = hovK === i || hovLane === i;
+      cells.k1[l][k].classList.toggle('active', kActive);
+    }
+  }
+  for(let k=0; k<cells.imm.length; k++){
+    let active = hovImm === k;
+    const driven = dstIndicesForCtl(k);
+    if(hovLane >= 0 && driven.includes(hovLane)) active = true;
+    if(hovK    >= 0 && driven.includes(hovK))    active = true;
+    cells.imm[k].classList.toggle('active', active);
+  }
 }
 
 // ─── Info box ───────────────────────────────────────────────────────────────

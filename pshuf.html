@@ -410,6 +410,7 @@ let imm8 = 0xE4;
 let kmode = 'off';
 let src, mask, kmask, dstPrev;
 let hovLane = -1, hovSrc = -1, hovK = -1, hovImm = -1;
+let cells;  // { src:[[…]], mask:[[…]], dst:[[…]], k1:[[…]], imm:[…] }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function hexN(v, bytes){ return (v >>> 0).toString(16).toUpperCase().padStart(bytes*2, '0'); }
@@ -595,9 +596,21 @@ function syncBadges(){
 }
 
 // ─── Lane / row construction ────────────────────────────────────────────────
+// Cells are built once per rebuildLanes() and cached in `cells`. After that,
+// render() updates only the data-dependent attributes of existing cells, and
+// refreshHover() updates only the hover-affected ones.
+function makeCell(idxLabel){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span>`;
+  el._val = el.lastChild;
+  return el;
+}
+
 function rebuildLanes(){
+  closePopup();
   const root = document.getElementById('lanes');
   root.innerHTML = '';
+  cells = { src: [], mask: [], dst: [], k1: [], imm: [] };
   for(let l=0; l<LANES; l++){
     const wrap = document.createElement('div');
     wrap.className = 'lane';
@@ -647,21 +660,102 @@ function rebuildLanes(){
       `;
     }
     root.appendChild(wrap);
+    cells.src[l] = buildSrcCells(l);
+    if(CFG.control === 'mask') cells.mask[l] = buildMaskCells(l);
+    cells.dst[l] = buildDstCells(l);
+    if(CFG.kmask) cells.k1[l] = buildK1Cells(l);
   }
+  if(CFG.control === 'imm8') cells.imm = buildImmCells();
   updateKmaskHints();
 }
 
-// ─── Rendering ──────────────────────────────────────────────────────────────
-function render(){
-  for(let l=0; l<LANES; l++){
-    renderSrcLane(l);
-    if(CFG.control === 'mask') renderMaskLane(l);
-    renderDstLane(l);
-    if(CFG.kmask) renderKmaskLane(l);
+function buildSrcCells(l){
+  const g = document.getElementById('src-grid-'+l);
+  const arr = [];
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const el = makeCell(`[${i}]`);
+    el.onclick = () => openSrcPopup(i, el, l);
+    el.addEventListener('mouseenter', () => { hovSrc=i; hovLane=-1; hovK=-1; hovImm=-1; refreshHover(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovSrc=-1; refreshHover(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+    arr.push(el);
   }
-  if(CFG.control === 'imm8') renderImm();
+  return arr;
 }
 
+function buildMaskCells(l){
+  const g = document.getElementById('mask-grid-'+l);
+  const arr = [];
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const el = makeCell(`[${i}]`);
+    el.onclick       = e => { e.preventDefault(); cycleMask(i); };
+    el.oncontextmenu = e => { e.preventDefault(); toggleHiBit(i); };
+    el.addEventListener('mouseenter', () => { hovLane=i; hovSrc=-1; hovK=-1; refreshHover(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovLane=-1; refreshHover(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+    arr.push(el);
+  }
+  return arr;
+}
+
+function buildDstCells(l){
+  const g = document.getElementById('dst-grid-'+l);
+  const arr = [];
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const el = makeCell(`[${i}]`);
+    el.addEventListener('mouseenter', () => { hovLane=i; hovSrc=-1; hovK=-1; hovImm=-1; refreshHover(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovLane=-1; refreshHover(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+    arr.push(el);
+  }
+  return arr;
+}
+
+function buildK1Cells(l){
+  const g = document.getElementById('kmask-grid-'+l);
+  const arr = [];
+  const base = l * LANE;
+  for(let k=0; k<LANE; k++){
+    const i = base + k;
+    const el = makeCell(`[${i}]`);
+    el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; hovK = i; render(); updateInfo(); };
+    el.addEventListener('mouseenter', () => { hovK=i; hovLane=-1; hovSrc=-1; hovImm=-1; refreshHover(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovK=-1; refreshHover(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+    arr.push(el);
+  }
+  return arr;
+}
+
+function buildImmCells(){
+  const g = document.getElementById('imm-grid');
+  g.innerHTML = '';
+  const arr = [];
+  for(let k=0; k<CFG.nFields; k++){
+    const el = makeCell(`bits [${k*2+1}:${k*2}]`);
+    el.onclick = e => {
+      e.preventDefault();
+      setField(k, (getField(k)+1) % 4);
+      document.getElementById('preset').value = '';
+      hovImm = k; hovLane = -1; hovSrc = -1; hovK = -1;
+      render(); drawAllArrows(); updateInfo();
+    };
+    el.oncontextmenu = e => { e.preventDefault(); openImmPopup(el); };
+    el.addEventListener('mouseenter', () => { hovImm=k; hovLane=-1; hovSrc=-1; hovK=-1; refreshHover(); drawAllArrows(); updateInfo(); });
+    el.addEventListener('mouseleave', () => { hovImm=-1; refreshHover(); drawAllArrows(); resetInfo(); });
+    g.appendChild(el);
+    arr.push(el);
+  }
+  return arr;
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
 function srcLitFor(i, l){
   if(hovSrc === i) return true;
   const base = l * LANE;
@@ -673,136 +767,107 @@ function srcLitFor(i, l){
     const rt = srcRouteFor(r);
     if(rt.kind !== 'zero' && rt.srcIdx === i) return true;
   }
-  // hovered imm field — same field affects every lane (imm8-mode only).
   if(CFG.control === 'imm8' && hovImm >= 0){
     if(i === base + CFG.shufBase + getField(hovImm)) return true;
   }
   return false;
 }
 
-function renderSrcLane(l){
-  const g = document.getElementById('src-grid-'+l);
-  const old = document.getElementById('active-popup');
-  g.innerHTML = '';
-  if(old && old._popTarget === 'src' && +old.dataset.lane === l) g.appendChild(old);
-  const base = l * LANE;
-  for(let k=0; k<LANE; k++){
-    const i = base + k;
-    const lit = srcLitFor(i, l);
-    const el = document.createElement('div');
-    el.className = 'cell src-cell' + (lit ? ' lit' : '');
-    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">0x${hexVal(src[i])}</span>`;
-    el.title = `src[${i}] = 0x${hexVal(src[i])} — click to edit`;
-    el.onclick = () => openSrcPopup(i, el, l);
-    el.addEventListener('mouseenter', () => { hovSrc=i; hovLane=-1; hovK=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
-    el.addEventListener('mouseleave', () => { hovSrc=-1; render(); drawAllArrows(); resetInfo(); });
-    g.appendChild(el);
-  }
-}
+function render(){
+  for(let l=0; l<LANES; l++){
+    const base = l * LANE;
+    for(let k=0; k<LANE; k++){
+      const i = base + k;
 
-function renderMaskLane(l){
-  const g = document.getElementById('mask-grid-'+l);
-  g.innerHTML = '';
-  const base = l * LANE;
-  for(let k=0; k<LANE; k++){
-    const i = base + k;
-    const m = mask[i];
-    const isHi = !!(m & 0x80);
-    const active = hovLane === i
-                || hovK === i
-                || (hovSrc >= 0 && laneOf(hovSrc) === l && !isHi && (m & 0x0F) === (hovSrc - base));
-    const el = document.createElement('div');
-    el.className = 'cell mask-cell ' + (isHi ? 'mask-hi' : 'mask-num') + (active ? ' active' : '');
-    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${isHi ? '0x'+hex2(m) : m}</span>`;
-    el.title = isHi
-      ? `mask[${i}] = 0x${hex2(m)} → zero`
-      : `mask[${i}] = ${m} → src[${base + (m & 0x0F)}]`;
-    el.onclick       = e => { e.preventDefault(); cycleMask(i); };
-    el.oncontextmenu = e => { e.preventDefault(); toggleHiBit(i); };
-    el.addEventListener('mouseenter', () => { hovLane=i; hovSrc=-1; hovK=-1; render(); drawAllArrows(); updateInfo(); });
-    el.addEventListener('mouseleave', () => { hovLane=-1; render(); drawAllArrows(); resetInfo(); });
-    g.appendChild(el);
-  }
-}
+      const sEl = cells.src[l][k];
+      sEl.className = 'cell src-cell';
+      sEl._val.textContent = '0x' + hexVal(src[i]);
+      sEl.title = `src[${i}] = 0x${hexVal(src[i])} — click to edit`;
 
-function renderDstLane(l){
-  const g = document.getElementById('dst-grid-'+l);
-  g.innerHTML = '';
-  const base = l * LANE;
-  for(let k=0; k<LANE; k++){
-    const i = base + k;
-    const s = dstStatus(i);
-    const el = document.createElement('div');
-    let txt, cls;
-    if(s.kind === 'val')       { txt = '0x'+hexVal(s.val); cls = 'dst-val'; }
-    else if(s.kind === 'copy') { txt = '0x'+hexVal(s.val); cls = 'dst-copy'; }
-    else if(s.kind === 'zero') { txt = zeroStr();          cls = 'dst-zer'; }
-    else                       { txt = '0x'+hexVal(s.val); cls = 'dst-keep'; }
-    el.className = 'cell ' + cls;
-    let lit = hovLane === i || hovK === i;
-    if(CFG.control === 'imm8' && hovImm >= 0 && k === CFG.shufBase + hovImm) lit = true;
-    if(hovSrc >= 0){
-      const rt = srcRouteFor(i);
-      if(rt.kind !== 'zero' && rt.srcIdx === hovSrc) lit = true;
+      if(CFG.control === 'mask'){
+        const mEl = cells.mask[l][k];
+        const m = mask[i], isHi = !!(m & 0x80);
+        mEl.className = 'cell mask-cell ' + (isHi ? 'mask-hi' : 'mask-num');
+        mEl._val.textContent = isHi ? '0x'+hex2(m) : m;
+        mEl.title = isHi
+          ? `mask[${i}] = 0x${hex2(m)} → zero`
+          : `mask[${i}] = ${m} → src[${base + (m & 0x0F)}]`;
+      }
+
+      const dEl = cells.dst[l][k];
+      const s = dstStatus(i);
+      let dtxt, dcls;
+      if(s.kind === 'val')       { dtxt = '0x'+hexVal(s.val); dcls = 'dst-val'; }
+      else if(s.kind === 'copy') { dtxt = '0x'+hexVal(s.val); dcls = 'dst-copy'; }
+      else if(s.kind === 'zero') { dtxt = zeroStr();          dcls = 'dst-zer'; }
+      else                       { dtxt = '0x'+hexVal(s.val); dcls = 'dst-keep'; }
+      dEl.className = 'cell ' + dcls;
+      dEl._val.textContent = dtxt;
+      dEl.title = s.kind === 'val'  ? `dst[${i}] = 0x${hexVal(s.val)}`
+              :  s.kind === 'copy' ? `dst[${i}] = src[${i}] = 0x${hexVal(s.val)} (copied unchanged)`
+              :  s.kind === 'zero' ? `dst[${i}] = ${zeroStr()} (zeroed)`
+              :                      `dst[${i}] = 0x${hexVal(s.val)} (kept — k1 mask off)`;
+
+      if(CFG.kmask){
+        const kEl = cells.k1[l][k];
+        const on = !!kmask[i];
+        kEl.className = 'cell km-cell' + (on ? '' : ' km-off');
+        kEl._val.textContent = on ? 1 : 0;
+        kEl.title = `k1[${i}] = ${on?1:0} → ${on ? 'pass-through' : (kmode==='zero' ? 'zero' : 'keep prior dst')}`;
+      }
     }
-    if(lit) el.style.boxShadow = '0 0 0 2.5px #639922';
-    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${txt}</span>`;
-    el.title = s.kind === 'val'  ? `dst[${i}] = 0x${hexVal(s.val)}`
-            :  s.kind === 'copy' ? `dst[${i}] = src[${i}] = 0x${hexVal(s.val)} (copied unchanged)`
-            :  s.kind === 'zero' ? `dst[${i}] = ${zeroStr()} (zeroed)`
-            :                      `dst[${i}] = 0x${hexVal(s.val)} (kept — k1 mask off)`;
-    el.addEventListener('mouseenter', () => { hovLane=i; hovSrc=-1; hovK=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
-    el.addEventListener('mouseleave', () => { hovLane=-1; render(); drawAllArrows(); resetInfo(); });
-    g.appendChild(el);
   }
+  if(CFG.control === 'imm8'){
+    for(let k=0; k<CFG.nFields; k++){
+      const el = cells.imm[k];
+      const f = getField(k);
+      const dstWithin = CFG.shufBase + k;
+      el.className = 'cell imm-cell';
+      el._val.textContent = f;
+      el.title = `imm8 field ${k} = ${f} → dst[lane·${LANE}+${dstWithin}] ← src[lane·${LANE}+${CFG.shufBase + f}]`;
+    }
+    document.getElementById('imm-lbl').textContent = 'imm8 = 0x' + hex2(imm8);
+  }
+  refreshHover();
 }
 
-function renderKmaskLane(l){
-  if(kmode === 'off') return;
-  const g = document.getElementById('kmask-grid-'+l);
-  g.innerHTML = '';
-  const base = l * LANE;
-  for(let k=0; k<LANE; k++){
-    const i = base + k;
-    const on = !!kmask[i];
-    const active = hovK === i || hovLane === i || hovSrc === i;
-    const el = document.createElement('div');
-    el.className = 'cell km-cell ' + (on ? '' : 'km-off') + (active ? ' active' : '');
-    el.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val">${on ? 1 : 0}</span>`;
-    el.title = `k1[${i}] = ${on?1:0} → ${on ? 'pass-through' : (kmode==='zero' ? 'zero' : 'keep prior dst')}`;
-    el.onclick = () => { kmask[i] = on ? 0 : 1; hovK = i; render(); updateInfo(); };
-    el.addEventListener('mouseenter', () => { hovK=i; hovLane=-1; hovSrc=-1; hovImm=-1; render(); drawAllArrows(); updateInfo(); });
-    el.addEventListener('mouseleave', () => { hovK=-1; render(); drawAllArrows(); resetInfo(); });
-    g.appendChild(el);
-  }
-}
+function refreshHover(){
+  for(let l=0; l<LANES; l++){
+    const base = l * LANE;
+    for(let k=0; k<LANE; k++){
+      const i = base + k;
+      cells.src[l][k].classList.toggle('lit', srcLitFor(i, l));
 
-function renderImm(){
-  const g = document.getElementById('imm-grid');
-  g.innerHTML = '';
-  for(let k=0; k<CFG.nFields; k++){
-    const f = getField(k);
-    const dstWithin = CFG.shufBase + k;
-    const active = hovImm === k
-                || (hovLane >= 0 && (hovLane % LANE) === dstWithin)
-                || (hovK    >= 0 && (hovK    % LANE) === dstWithin);
-    const el = document.createElement('div');
-    el.className = 'cell imm-cell' + (active ? ' active' : '');
-    el.innerHTML = `<span class="cell-idx">bits [${k*2+1}:${k*2}]</span><span class="cell-val">${f}</span>`;
-    el.title = `imm8 field ${k} = ${f} → dst[lane·${LANE}+${dstWithin}] ← src[lane·${LANE}+${CFG.shufBase + f}]`;
-    el.onclick = e => {
-      e.preventDefault();
-      setField(k, (getField(k)+1) % 4);
-      document.getElementById('preset').value = '';
-      hovImm = k; hovLane = -1; hovSrc = -1; hovK = -1;
-      render(); drawAllArrows(); updateInfo();
-    };
-    el.oncontextmenu = e => { e.preventDefault(); openImmPopup(el); };
-    el.addEventListener('mouseenter', () => { hovImm=k; hovLane=-1; hovSrc=-1; hovK=-1; render(); drawAllArrows(); updateInfo(); });
-    el.addEventListener('mouseleave', () => { hovImm=-1; render(); drawAllArrows(); resetInfo(); });
-    g.appendChild(el);
+      if(CFG.control === 'mask'){
+        const m = mask[i], isHi = !!(m & 0x80);
+        const active = hovLane === i || hovK === i
+                    || (hovSrc >= 0 && laneOf(hovSrc) === l && !isHi && (m & 0x0F) === (hovSrc - base));
+        cells.mask[l][k].classList.toggle('active', active);
+      }
+
+      let lit = hovLane === i || hovK === i;
+      if(CFG.control === 'imm8' && hovImm >= 0 && k === CFG.shufBase + hovImm) lit = true;
+      if(hovSrc >= 0){
+        const rt = srcRouteFor(i);
+        if(rt.kind !== 'zero' && rt.srcIdx === hovSrc) lit = true;
+      }
+      cells.dst[l][k].style.boxShadow = lit ? '0 0 0 2.5px #639922' : '';
+
+      if(CFG.kmask){
+        const active = hovK === i || hovLane === i || hovSrc === i;
+        cells.k1[l][k].classList.toggle('active', active);
+      }
+    }
   }
-  document.getElementById('imm-lbl').textContent = 'imm8 = 0x' + hex2(imm8);
+  if(CFG.control === 'imm8'){
+    for(let k=0; k<CFG.nFields; k++){
+      const dstWithin = CFG.shufBase + k;
+      const active = hovImm === k
+                  || (hovLane >= 0 && (hovLane % LANE) === dstWithin)
+                  || (hovK    >= 0 && (hovK    % LANE) === dstWithin);
+      cells.imm[k].classList.toggle('active', active);
+    }
+  }
 }
 
 // ─── Mask cell mutation (pshufb) ────────────────────────────────────────────
