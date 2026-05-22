@@ -394,9 +394,10 @@ function dstStatus(i){
 }
 
 function isaLabel(){ return CFG.isaForWidth(N, kmode); }
+function regNameForBits(bits){ return bits === 128 ? 'XMM' : bits === 256 ? 'YMM' : 'ZMM'; }
 function widthLabel(){
   const bits = N * CFG.elemBytes * 8;
-  return bits === 128 ? '128-bit XMM' : bits === 256 ? '256-bit YMM' : '512-bit ZMM';
+  return `${bits}-bit ${regNameForBits(bits)}`;
 }
 
 // Replicate a per-lane base bit-pattern across all lanes (used by 'bits' mode).
@@ -438,6 +439,7 @@ function selectInstruction(name){
   rebuildPresetOptions();
   rebuildWidthOptions();
   document.getElementById('kmode').value = 'off';
+  document.getElementById('imm-grid').style.setProperty('--cols', ctlCount());
 
   rebuildLanes();
   syncBadges();
@@ -466,7 +468,7 @@ function rebuildWidthOptions(){
     const opt = document.createElement('option');
     opt.value = w;
     const bits = w * CFG.elemBytes * 8;
-    opt.textContent = bits === 128 ? 'XMM (128)' : bits === 256 ? 'YMM (256)' : 'ZMM (512)';
+    opt.textContent = `${regNameForBits(bits)} (${bits})`;
     sel.appendChild(opt);
   }
   sel.value = N;
@@ -490,6 +492,7 @@ function changeWidth(w){
     const stride = CFG.bitsPerCtl * LANE;
     const base = imm8 & ((1 << stride) - 1);
     imm8 = broadcastLaneBase(base);
+    document.getElementById('imm-grid').style.setProperty('--cols', ctlCount());
   }
   rebuildLanes();
   syncBadges();
@@ -497,10 +500,10 @@ function changeWidth(w){
 }
 
 function changeKmaskMode(m){
+  if(m === kmode) return;
   kmode = m;
   for(let l=0; l<LANES; l++){
-    const row = document.getElementById('kmask-row-'+l);
-    if(row) row.hidden = (kmode === 'off');
+    document.getElementById('kmask-row-'+l).hidden = (kmode === 'off');
   }
   updateKmaskHints();
   syncBadges();
@@ -617,7 +620,6 @@ function renderSrcLane(name, l){
 
 function renderDstLane(l){
   const g = document.getElementById('dst-grid-'+l);
-  if(!g) return;
   g.innerHTML = '';
   const base = l * LANE;
   for(let k=0; k<LANE; k++){
@@ -650,7 +652,6 @@ function renderDstLane(l){
 function renderKmaskLane(l){
   if(kmode === 'off') return;
   const g = document.getElementById('kmask-grid-'+l);
-  if(!g) return;
   g.innerHTML = '';
   const base = l * LANE;
   for(let k=0; k<LANE; k++){
@@ -671,13 +672,11 @@ function renderKmaskLane(l){
 function renderImm(){
   const g = document.getElementById('imm-grid');
   const count = ctlCount();
-  g.style.setProperty('--cols', count);
   g.innerHTML = '';
   for(let k=0; k<count; k++){
     const v = getCtl(k);
     const fromSrcNum = CFG.whichSrc(withinLaneOfCtl(k));
     const fromSrc = fromSrcNum === 1 ? 'src1' : 'src2';
-    // Active if hovering this exact cell, OR hovering a dst/k1 that this cell controls.
     let active = hovImm === k;
     const driven = dstIndicesForCtl(k);
     if(hovLane >= 0 && driven.includes(hovLane)) active = true;
@@ -755,8 +754,6 @@ function updateInfo(){
   if(hovSrcNum){
     const l = laneOf(hovSrc), arr = srcArr(hovSrcNum), name = srcArrName(hovSrcNum);
     const refs = [];
-    // Walk every dst that draws from this source register and lane; record the
-    // ones whose route lands on the hovered src index (and that aren't k1-masked out).
     for(let i=l*LANE; i<l*LANE+LANE; i++){
       if(CFG.kmask && kmode !== 'off' && !kmask[i]) continue;
       const rt = srcRouteFor(i);

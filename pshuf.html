@@ -428,7 +428,6 @@ function maxVal(){
   return CFG.elemBytes === 4 ? 0xFFFFFFFF : (1 << (CFG.elemBytes * 8)) - 1;
 }
 function quickFill(b){
-  // Replicate one byte across all element bytes (0x00, 0xFF, 0xAA, 0x55).
   if(CFG.elemBytes === 1) return b;
   if(CFG.elemBytes === 2) return (b << 8) | b;
   return ((b<<24) | (b<<16) | (b<<8) | b) >>> 0;
@@ -462,17 +461,18 @@ function dstStatus(i){
 }
 
 function isaLabel(){ return CFG.isaForWidth(N, kmode); }
+function regNameForBits(bits){ return bits === 128 ? 'XMM' : bits === 256 ? 'YMM' : 'ZMM'; }
 function widthLabel(){
   if(CFG.widthLabel) return CFG.widthLabel();
   const bits = N * CFG.elemBytes * 8;
-  return bits === 128 ? '128-bit XMM' : bits === 256 ? '256-bit YMM' : '512-bit ZMM';
+  return `${bits}-bit ${regNameForBits(bits)}`;
 }
 
 // ─── Init / instruction switching ───────────────────────────────────────────
 function initData(n){
   N = n; LANES = N / LANE;
   src     = Array.from({length:N}, (_,i) => CFG.srcInit(i));
-  mask    = Array.from({length:N}, (_,i) => i % LANE);   // only used by pshufb
+  mask    = Array.from({length:N}, (_,i) => i % LANE);
   kmask   = Array.from({length:N}, () => 1);
   dstPrev = Array.from({length:N}, () => prevFill());
 }
@@ -505,7 +505,6 @@ function selectInstruction(name){
   rebuildLanes();
   syncBadges();
 
-  // Apply the first preset so the default state matches identity / default imm8.
   const def = CFG.presetOptions[0][0];
   document.getElementById('preset').value = def;
   applyPreset(def);
@@ -533,7 +532,7 @@ function rebuildWidthOptions(){
       opt.textContent = CFG.widthLabel();
     } else {
       const bits = w * CFG.elemBytes * 8;
-      opt.textContent = bits === 128 ? 'XMM (128)' : bits === 256 ? 'YMM (256)' : 'ZMM (512)';
+      opt.textContent = `${regNameForBits(bits)} (${bits})`;
     }
     sel.appendChild(opt);
   }
@@ -559,7 +558,7 @@ function changeWidth(w){
   const newN = parseInt(w);
   if(newN === N) return;
   if(CFG.control === 'mask'){
-    // Preserve mask pattern from lane 0, replicate across all lanes (matches old pshufb behavior).
+    // Preserve mask pattern from lane 0, replicate across all lanes.
     const oldLane0 = mask.slice(0, LANE);
     initData(newN);
     for(let i=0; i<N; i++) mask[i] = oldLane0[i % LANE];
@@ -572,10 +571,10 @@ function changeWidth(w){
 }
 
 function changeKmaskMode(m){
+  if(m === kmode) return;
   kmode = m;
   for(let l=0; l<LANES; l++){
-    const row = document.getElementById('kmask-row-'+l);
-    if(row) row.hidden = (kmode === 'off');
+    document.getElementById('kmask-row-'+l).hidden = (kmode === 'off');
   }
   updateKmaskHints();
   syncBadges();
@@ -663,11 +662,9 @@ function render(){
   if(CFG.control === 'imm8') renderImm();
 }
 
-// "Is src cell i sourced into any dst cell that's currently the hover focus?"
 function srcLitFor(i, l){
   if(hovSrc === i) return true;
   const base = l * LANE;
-  // hovered dst-side cell (lane, k1) — does its route point to this src?
   const refs = [];
   if(hovLane >= 0) refs.push(hovLane);
   if(hovK    >= 0) refs.push(hovK);
@@ -711,7 +708,6 @@ function renderMaskLane(l){
     const i = base + k;
     const m = mask[i];
     const isHi = !!(m & 0x80);
-    // Same conditions used to set the "active" outline on the cell that owns the current hover.
     const active = hovLane === i
                 || hovK === i
                 || (hovSrc >= 0 && laneOf(hovSrc) === l && !isHi && (m & 0x0F) === (hovSrc - base));
@@ -731,7 +727,6 @@ function renderMaskLane(l){
 
 function renderDstLane(l){
   const g = document.getElementById('dst-grid-'+l);
-  if(!g) return;
   g.innerHTML = '';
   const base = l * LANE;
   for(let k=0; k<LANE; k++){
@@ -744,7 +739,6 @@ function renderDstLane(l){
     else if(s.kind === 'zero') { txt = zeroStr();          cls = 'dst-zer'; }
     else                       { txt = '0x'+hexVal(s.val); cls = 'dst-keep'; }
     el.className = 'cell ' + cls;
-    // Highlight this dst if it's the source of any current hover.
     let lit = hovLane === i || hovK === i;
     if(CFG.control === 'imm8' && hovImm >= 0 && k === CFG.shufBase + hovImm) lit = true;
     if(hovSrc >= 0){
@@ -766,7 +760,6 @@ function renderDstLane(l){
 function renderKmaskLane(l){
   if(kmode === 'off') return;
   const g = document.getElementById('kmask-grid-'+l);
-  if(!g) return;
   g.innerHTML = '';
   const base = l * LANE;
   for(let k=0; k<LANE; k++){
@@ -1040,8 +1033,7 @@ function drawArrows(l){
   ctx.clearRect(0, 0, W, 52);
 
   const base = l * LANE;
-  // pairs: [srcIdx, dstSideIdx] — where the arrow points to depends on which
-  // grid is shown below the arrows: 'mask' for pshufb, 'dst' otherwise.
+  // Arrow tip lands on the row immediately below: mask grid for pshufb, dst grid otherwise.
   const downGridId = CFG.control === 'mask' ? 'mask-grid-' : 'dst-grid-';
   const pairs = [];
 
