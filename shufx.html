@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VSHUFx — Interactive 128-bit Lane Shuffle Visualisers</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 1200px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .br { background: #F7C1C1; color: #501313; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .br { background: #791F1F; color: #F7C1C1; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); column-gap: 3px; row-gap: 3px; }
+
+  .chunks-row { display: flex; gap: 10px; position: relative; }
+  .chunk-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 4), 1fr);
+    column-gap: 3px;
+    flex: 1; min-width: 0;
+    border-radius: 6px;
+    padding: 2px;
+    background: transparent;
+    border: 0.5px dashed transparent;
+  }
+  .chunks-row .chunk-grid + .chunk-grid::before { content: none; }
+  .chunk-grid.lit-chunk { border-color: var(--border2); background: var(--bg2); }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 46px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 11px; line-height: 1; }
+  /* For dense rows (ZMM 32x4 shows 16 cells) shrink the value text. */
+  .dense .cell-val { font-size: 10px; }
+
+  .src-cell  { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .src-cell:hover { background: #B5D4F4; }
+  .src-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .src2-cell { background: #EDE6FB; border-color: #8B5CF6; color: #3B1F8C; cursor: pointer; }
+  .src2-cell:hover { background: #D8CCFA; }
+  .src2-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .imm-cell { background: #FAEEDA; border-color: #EF9F27; color: #633806; cursor: pointer; }
+  .imm-cell:hover { background: #FAC775; }
+  .imm-cell.active { box-shadow: 0 0 0 2.5px #EF9F27; transform: scale(1.08); z-index: 3; }
+  .imm-cell.disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .km-cell  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 32px; }
+  .km-cell:hover { background: #D8C9F4; }
+  .km-cell.km-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km-cell.km-off:hover { background: #E4E1D5; }
+  .km-cell.active { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  .dst-val  { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-zer  { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: default; }
+  .dst-keep { background: #F4F0FA; border-color: #8367C7; color: #2A1356; cursor: default; }
+
+  @media (prefers-color-scheme: dark) {
+    .src-cell  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .src-cell:hover { background: #185FA5; }
+    .src-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .src2-cell { background: #3B1F8C; border-color: #8B5CF6; color: #EDE6FB; }
+    .src2-cell:hover { background: #4E2EB5; }
+    .src2-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .imm-cell { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .imm-cell:hover { background: #854F0B; }
+    .km-cell  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km-cell:hover { background: #4F2D94; }
+    .km-cell.km-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km-cell.km-off:hover { background: #3A3A38; }
+    .dst-val  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-zer  { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .dst-keep { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .chunk-grid.lit-chunk { background: var(--bg2); border-color: var(--border2); }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .imm-lbl { font-size: 12px; color: var(--text2); font-family: var(--font-mono); margin-top: 6px; text-align: center; }
+
+  .chunk-tag {
+    font-size: 10px; color: var(--text3); font-family: var(--font-mono);
+    text-align: center; margin-bottom: 2px;
+  }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+
+  .popup {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 180px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs">
+    <button class="tab" data-instr="vshuff32x4">VSHUFF32x4</button>
+    <button class="tab" data-instr="vshuff64x2">VSHUFF64x2</button>
+    <button class="tab" data-instr="vshufi32x4">VSHUFI32x4</button>
+    <button class="tab" data-instr="vshufi64x2">VSHUFI64x2</button>
+  </div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <label class="ctl">
+      Preset:
+      <select id="preset" onchange="applyPreset(this.value)"></select>
+    </label>
+    <span style="flex:1"></span>
+    <label class="ctl">
+      Width:
+      <select id="width" onchange="changeWidth(this.value)"></select>
+    </label>
+    <label class="ctl">
+      Mask:
+      <select id="kmode" onchange="changeKmaskMode(this.value)">
+        <option value="off">none</option>
+        <option value="merge">{k1} merge</option>
+        <option value="zero">{k1}{z} zero</option>
+      </select>
+    </label>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div id="layout"></div>
+
+  <div style="height:10px"></div>
+  <div class="row-lbl">
+    <span class="badge ba">imm8</span>
+    <span class="hint" id="imm-hint"></span>
+  </div>
+  <div class="reg-grid" style="--cols:4;position:relative" id="imm-grid"></div>
+  <div class="imm-lbl" id="imm-lbl"></div>
+
+  <div class="info" id="info">Hover over any cell to inspect the shuffle.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// Two-source 128-bit-lane shuffles. The atomic unit moved is a whole 128-bit
+// lane (4 dwords for *32x4* or 2 qwords for *64x2*). For the destination's
+// lower half the source register is src1, for the upper half it is src2.
+// imm8 is split into LANES fields of log2(LANES) bits — 1 bit per lane on YMM,
+// 2 bits per lane on ZMM. Each field selects which 128-bit lane of the
+// corresponding source feeds that destination lane.
+const CONFIGS = {
+  vshuff32x4: {
+    title: 'VSHUFF32x4',
+    pageTitle: 'VSHUFF32x4 — Interactive 128-bit Lane Single-Precision Shuffle Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vshuff32x4:vshuff64x2:vshufi32x4:vshufi64x2',
+    subtitle: 'Pick whole 128-bit lanes of single-precision floats from src1 (lower-half dst lanes) and src2 (upper-half dst lanes). Each dst 128-bit lane (4 dwords) is fully sourced from one selected 128-bit lane of its source register.',
+    elemBytes: 4, lane: 4,
+    widths: [16, 8],
+    elemName: 'dword', elemNameP: 'dwords',
+  },
+  vshuff64x2: {
+    title: 'VSHUFF64x2',
+    pageTitle: 'VSHUFF64x2 — Interactive 128-bit Lane Double-Precision Shuffle Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vshuff32x4:vshuff64x2:vshufi32x4:vshufi64x2',
+    subtitle: 'Pick whole 128-bit lanes of double-precision floats from src1 (lower-half dst lanes) and src2 (upper-half dst lanes). Each dst 128-bit lane (2 qwords) is fully sourced from one selected 128-bit lane of its source register.',
+    elemBytes: 8, lane: 2,
+    widths: [8, 4],
+    elemName: 'qword', elemNameP: 'qwords',
+  },
+  vshufi32x4: {
+    title: 'VSHUFI32x4',
+    pageTitle: 'VSHUFI32x4 — Interactive 128-bit Lane 32-bit Integer Shuffle Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vshuff32x4:vshuff64x2:vshufi32x4:vshufi64x2',
+    subtitle: 'Pick whole 128-bit lanes of 32-bit integers from src1 (lower-half dst lanes) and src2 (upper-half dst lanes). Each dst 128-bit lane (4 dwords) is fully sourced from one selected 128-bit lane of its source register.',
+    elemBytes: 4, lane: 4,
+    widths: [16, 8],
+    elemName: 'dword', elemNameP: 'dwords',
+  },
+  vshufi64x2: {
+    title: 'VSHUFI64x2',
+    pageTitle: 'VSHUFI64x2 — Interactive 128-bit Lane 64-bit Integer Shuffle Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vshuff32x4:vshuff64x2:vshufi32x4:vshufi64x2',
+    subtitle: 'Pick whole 128-bit lanes of 64-bit integers from src1 (lower-half dst lanes) and src2 (upper-half dst lanes). Each dst 128-bit lane (2 qwords) is fully sourced from one selected 128-bit lane of its source register.',
+    elemBytes: 8, lane: 2,
+    widths: [8, 4],
+    elemName: 'qword', elemNameP: 'qwords',
+  },
+};
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let CFG;
+let N;           // total elements in destination
+let LANE;        // elements per 128-bit lane
+let LANES;       // number of 128-bit lanes (2 on YMM, 4 on ZMM)
+let BPC;         // imm8 bits per lane field (1 on YMM, 2 on ZMM)
+let imm8 = 0;
+let kmode = 'off';
+let src1, src2, kmask, dstPrev;
+let hovDst = -1, hovSrc1 = -1, hovSrc2 = -1, hovK = -1, hovImm = -1;
+let cells;  // { src1:[…], src2:[…], dst:[…], k1:[…], imm:[…] } — flat per-row
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hex2(v){ return v.toString(16).toUpperCase().padStart(2, '0'); }
+function zeroStr(){ return '0x' + '0'.repeat(CFG.elemBytes*2); }
+function prevFillStr(){ return 'C'.repeat(CFG.elemBytes*2); }
+function laneOf(i){ return (i / LANE) | 0; }
+function withinOf(i){ return i % LANE; }
+function ctlMask(){ return (1 << BPC) - 1; }
+function getCtl(c){ return (imm8 >> (c * BPC)) & ctlMask(); }
+function setCtl(c, v){
+  const m = ctlMask();
+  imm8 = (imm8 & ~(m << (c*BPC))) | ((v & m) << (c*BPC));
+  imm8 &= 0xFF;
+}
+function whichSrc(c){ return c < LANES/2 ? 1 : 2; }
+
+function srcRouteFor(i){
+  const c = laneOf(i), within = withinOf(i);
+  const src = whichSrc(c);
+  const srcChunk = getCtl(c);
+  return { src, srcIdx: srcChunk * LANE + within, srcChunk, dstChunk: c };
+}
+
+function dstStatus(i){
+  if(kmode !== 'off' && !kmask[i]){
+    return kmode === 'zero' ? { kind:'zero' } : { kind:'keep', val: dstPrev[i] };
+  }
+  const r = srcRouteFor(i);
+  const arr = r.src === 1 ? src1 : src2;
+  return { kind:'val', val: arr[r.srcIdx] };
+}
+
+function isaLabel(){
+  const bits = N * CFG.elemBytes * 8;
+  return bits === 512 ? 'AVX-512F' : 'AVX-512F+VL';
+}
+function regNameForBits(bits){ return bits === 256 ? 'YMM' : 'ZMM'; }
+function widthLabel(){
+  const bits = N * CFG.elemBytes * 8;
+  return `${bits}-bit ${regNameForBits(bits)}`;
+}
+
+// ─── Source initial values ─────────────────────────────────────────────────
+// Each 128-bit lane gets a distinct hex tag so cross-lane movement is visible.
+function srcInit(srcNum, i){
+  const c = laneOf(i), w = withinOf(i);
+  if(CFG.elemBytes === 4){
+    // dword: 0x{A0|c}{w*0x111111}  (src2 uses 0xB0 prefix)
+    const top = (srcNum === 1 ? 0xA0 : 0xB0) | c;
+    const v = (top << 24) | (w * 0x111111);
+    return (v >>> 0).toString(16).toUpperCase().padStart(8, '0');
+  } else {
+    // qword (16 hex chars): repeat pattern "{prefix}{chunk}{elem}" to fill.
+    const prefix = srcNum === 1 ? 'A' : 'B';
+    const ch = c.toString(16).toUpperCase();
+    const el = w.toString(16).toUpperCase();
+    const triplet = prefix + ch + el;
+    return (triplet.repeat(6) + prefix + ch).slice(0, 16);
+  }
+}
+
+// ─── Init / instruction switching ───────────────────────────────────────────
+function identityImm(){
+  // ctl[c] = c   →   identity (each dst lane picks the matching lane index)
+  let v = 0;
+  for(let c=0; c<LANES; c++) v |= (c & ((1<<BPC)-1)) << (c*BPC);
+  return v & 0xFF;
+}
+
+function initData(n){
+  N = n;
+  LANES = N / LANE;
+  BPC = Math.round(Math.log2(LANES));
+  src1    = Array.from({length:N}, (_,i) => srcInit(1, i));
+  src2    = Array.from({length:N}, (_,i) => srcInit(2, i));
+  kmask   = Array.from({length:N}, () => 1);
+  dstPrev = Array.from({length:N}, () => prevFillStr());
+}
+
+function selectInstruction(name){
+  if(!CONFIGS[name]) name = 'vshuff32x4';
+  CFG = CONFIGS[name];
+  LANE = CFG.lane;
+  kmode = 'off';
+  hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
+  closePopup();
+  initData(CFG.widths[0]);
+  imm8 = identityImm();
+
+  document.title = CFG.pageTitle;
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.instr === name));
+  document.getElementById('title').textContent = CFG.title;
+  document.getElementById('subtitle').innerHTML = CFG.subtitle;
+  document.getElementById('isa-ref').href = CFG.isaRef;
+
+  rebuildPresetOptions();
+  rebuildWidthOptions();
+  document.getElementById('kmode').value = 'off';
+
+  rebuildLayout();
+  syncBadges();
+
+  document.getElementById('preset').value = 'identity';
+  render(); drawAllArrows();
+
+  if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+function rebuildPresetOptions(){
+  const sel = document.getElementById('preset');
+  sel.innerHTML = '';
+  const opts = [
+    ['identity', 'Identity (in order)'],
+    ['lowall',   'All lowest lane'],
+    ['highall',  'All highest lane'],
+    ['reverse',  'Reverse lanes'],
+  ];
+  for(const [val, label] of opts){
+    const opt = document.createElement('option');
+    opt.value = val; opt.textContent = label;
+    sel.appendChild(opt);
+  }
+}
+
+function rebuildWidthOptions(){
+  const sel = document.getElementById('width');
+  sel.innerHTML = '';
+  for(const w of CFG.widths){
+    const opt = document.createElement('option');
+    opt.value = w;
+    const bits = w * CFG.elemBytes * 8;
+    opt.textContent = `${regNameForBits(bits)} (${bits})`;
+    sel.appendChild(opt);
+  }
+  sel.value = N;
+}
+
+function applyPreset(k){
+  let fn;
+  if(k === 'identity') fn = c => c;
+  else if(k === 'lowall')  fn = _ => 0;
+  else if(k === 'highall') fn = _ => LANES - 1;
+  else if(k === 'reverse') fn = c => LANES - 1 - c;
+  else return;
+  imm8 = 0;
+  for(let c=0; c<LANES; c++) setCtl(c, fn(c));
+  closePopup();
+  hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
+  render(); drawAllArrows();
+}
+
+function changeWidth(w){
+  const newN = parseInt(w);
+  if(newN === N) return;
+  initData(newN);
+  const preset = document.getElementById('preset').value || 'identity';
+  imm8 = identityImm();
+  rebuildLayout();
+  syncBadges();
+  // re-apply preset under new layout
+  applyPreset(preset in {identity:1, lowall:1, highall:1, reverse:1} ? preset : 'identity');
+}
+
+function changeKmaskMode(m){
+  if(m === kmode) return;
+  kmode = m;
+  const row = document.getElementById('kmask-row');
+  if(row) row.hidden = (kmode === 'off');
+  updateKmaskHints();
+  syncBadges();
+  render(); drawAllArrows();
+}
+
+function updateKmaskHints(){
+  const txt = kmode === 'zero'  ? `click to toggle 0/1 — 0 zeroes the output ${CFG.elemName}`
+            : kmode === 'merge' ? `click to toggle 0/1 — 0 keeps the prior dst ${CFG.elemName}`
+                                : "click to toggle 0/1 — 1 = element active";
+  document.querySelectorAll('.kmask-hint').forEach(el => el.textContent = txt);
+}
+
+function syncBadges(){
+  document.getElementById('isa-badge').textContent = isaLabel();
+  document.getElementById('width-badge').textContent = widthLabel();
+  document.getElementById('imm-hint').textContent =
+    `left-click: cycle 0–${LANES-1} · right-click: edit full imm8 · ${BPC} bit${BPC>1?'s':''} per dst lane`;
+  // dense rows benefit from a slightly smaller value font
+  document.getElementById('layout').classList.toggle('dense', N >= 12);
+}
+
+// ─── Layout ─────────────────────────────────────────────────────────────────
+function makeCell(idxLabel){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span>`;
+  el._val = el.lastChild;
+  return el;
+}
+
+function chunkTags(){
+  const wrap = document.createElement('div');
+  wrap.className = 'chunks-row';
+  for(let c=0; c<LANES; c++){
+    const t = document.createElement('div');
+    t.className = 'chunk-grid';
+    t.style.setProperty('--cols', 1);
+    t.innerHTML = `<div class="chunk-tag">128b lane ${c}</div>`;
+    wrap.appendChild(t);
+  }
+  return wrap;
+}
+
+function rebuildLayout(){
+  closePopup();
+  const root = document.getElementById('layout');
+  root.innerHTML = '';
+  cells = { src1: [], src2: [], dst: [], k1: [], imm: [] };
+
+  // header showing the 128-bit-lane tags aligned with the grid columns
+  root.appendChild(chunkTags());
+
+  const lowRange  = LANES/2 === 1 ? 'dst lane 0' : `dst lanes [0..${LANES/2-1}]`;
+  const highRange = LANES/2 === 1 ? `dst lane ${LANES-1}` : `dst lanes [${LANES/2}..${LANES-1}]`;
+
+  // src1
+  const lbl1 = document.createElement('div');
+  lbl1.className = 'row-lbl';
+  lbl1.innerHTML = `<span class="badge bb">src1</span><span class="hint">feeds ${lowRange} — click a ${CFG.elemName} to edit</span>`;
+  root.appendChild(lbl1);
+  cells.src1 = buildChunksRow('src1', 'src-cell');
+
+  // src2
+  const lbl2 = document.createElement('div');
+  lbl2.className = 'row-lbl';
+  lbl2.style.marginTop = '4px';
+  lbl2.innerHTML = `<span class="badge bp">src2</span><span class="hint">feeds ${highRange} — click a ${CFG.elemName} to edit</span>`;
+  root.appendChild(lbl2);
+  cells.src2 = buildChunksRow('src2', 'src2-cell');
+
+  // arrow canvas
+  const aw = document.createElement('div');
+  aw.style.cssText = 'position:relative;height:54px;margin:2px 0';
+  aw.innerHTML = `<canvas id="arrows" style="width:100%;display:block" height="54"></canvas>`;
+  root.appendChild(aw);
+
+  // dst
+  const lblD = document.createElement('div');
+  lblD.className = 'row-lbl';
+  lblD.innerHTML = `<span class="badge bg">dst</span>`;
+  root.appendChild(lblD);
+  cells.dst = buildChunksRow('dst', 'dst-val');
+
+  // kmask row
+  const km = document.createElement('div');
+  km.className = 'kmask-row';
+  km.id = 'kmask-row';
+  if(kmode === 'off') km.hidden = true;
+  km.innerHTML = `
+    <div style="height:8px"></div>
+    <div class="row-lbl"><span class="badge bp">k1</span><span class="hint kmask-hint">click to toggle 0/1</span></div>
+  `;
+  root.appendChild(km);
+  cells.k1 = buildChunksRow('k1', 'km-cell', km);
+
+  // imm grid
+  document.getElementById('imm-grid').style.setProperty('--cols', LANES);
+  cells.imm = buildImmCells();
+
+  updateKmaskHints();
+}
+
+function buildChunksRow(name, baseClass, parent){
+  const row = document.createElement('div');
+  row.className = 'chunks-row';
+  row.id = `${name}-row`;
+  (parent || document.getElementById('layout')).appendChild(row);
+
+  const arr = [];
+  for(let c=0; c<LANES; c++){
+    const cg = document.createElement('div');
+    cg.className = 'chunk-grid';
+    cg.style.setProperty('--cols', LANE);
+    cg.dataset.chunk = c;
+    cg.id = `${name}-chunk-${c}`;
+    for(let k=0; k<LANE; k++){
+      const i = c * LANE + k;
+      const el = makeCell(`[${i}]`);
+      el.className = 'cell ' + baseClass;
+      el.dataset.idx = i;
+      wireCellEvents(name, i, el);
+      cg.appendChild(el);
+      arr.push(el);
+    }
+    row.appendChild(cg);
+  }
+  return arr;
+}
+
+function wireCellEvents(name, i, el){
+  if(name === 'src1' || name === 'src2'){
+    el.onclick = () => openSrcPopup(name, i, el);
+    el.addEventListener('mouseenter', () => {
+      if(name === 'src1'){ hovSrc1 = i; hovSrc2 = -1; }
+      else               { hovSrc2 = i; hovSrc1 = -1; }
+      hovDst = -1; hovK = -1; hovImm = -1;
+      refreshHover(); drawAllArrows(); updateInfo();
+    });
+    el.addEventListener('mouseleave', () => {
+      if(name === 'src1') hovSrc1 = -1; else hovSrc2 = -1;
+      refreshHover(); drawAllArrows(); resetInfo();
+    });
+  } else if(name === 'dst'){
+    el.addEventListener('mouseenter', () => {
+      hovDst = i; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
+      refreshHover(); drawAllArrows(); updateInfo();
+    });
+    el.addEventListener('mouseleave', () => {
+      hovDst = -1; refreshHover(); drawAllArrows(); resetInfo();
+    });
+  } else if(name === 'k1'){
+    el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; hovK = i; render(); drawAllArrows(); updateInfo(); };
+    el.addEventListener('mouseenter', () => {
+      hovK = i; hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovImm = -1;
+      refreshHover(); drawAllArrows(); updateInfo();
+    });
+    el.addEventListener('mouseleave', () => {
+      hovK = -1; refreshHover(); drawAllArrows(); resetInfo();
+    });
+  }
+}
+
+function buildImmCells(){
+  const g = document.getElementById('imm-grid');
+  g.innerHTML = '';
+  const arr = [];
+  for(let c=0; c<LANES; c++){
+    const fromSrcNum = whichSrc(c);
+    const fromSrc = fromSrcNum === 1 ? 'src1' : 'src2';
+    const bitsHi = (c+1)*BPC - 1, bitsLo = c*BPC;
+    const idxLabel = BPC === 1
+      ? `${fromSrc} bit ${bitsLo}`
+      : `${fromSrc} bits ${bitsHi}:${bitsLo}`;
+    const el = makeCell(idxLabel);
+    el.onclick = e => {
+      e.preventDefault();
+      const mod = 1 << BPC;
+      setCtl(c, (getCtl(c) + 1) % mod);
+      document.getElementById('preset').value = '';
+      hovImm = c; hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
+      render(); drawAllArrows(); updateInfo();
+    };
+    el.oncontextmenu = e => { e.preventDefault(); openImmPopup(el); };
+    el.addEventListener('mouseenter', () => {
+      hovImm = c; hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
+      refreshHover(); drawAllArrows(); updateInfo();
+    });
+    el.addEventListener('mouseleave', () => {
+      hovImm = -1; refreshHover(); drawAllArrows(); resetInfo();
+    });
+    g.appendChild(el);
+    arr.push(el);
+  }
+  return arr;
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function srcLitFor(arrName, i){
+  const srcNum = arrName === 'src1' ? 1 : 2;
+  if(arrName === 'src1' && hovSrc1 === i) return true;
+  if(arrName === 'src2' && hovSrc2 === i) return true;
+  const refs = [];
+  if(hovDst >= 0) refs.push(hovDst);
+  if(hovK   >= 0) refs.push(hovK);
+  if(hovImm >= 0){
+    for(let k=0; k<LANE; k++) refs.push(hovImm * LANE + k);
+  }
+  for(const r of refs){
+    const rt = srcRouteFor(r);
+    if(rt.src === srcNum && rt.srcIdx === i) return true;
+  }
+  return false;
+}
+
+function render(){
+  for(let i=0; i<N; i++){
+    const s1 = cells.src1[i];
+    s1.className = 'cell src-cell';
+    s1._val.textContent = '0x' + src1[i];
+    s1.title = `src1[${i}] = 0x${src1[i]} (lane ${laneOf(i)}, ${CFG.elemName} ${withinOf(i)}) — click to edit`;
+
+    const s2 = cells.src2[i];
+    s2.className = 'cell src2-cell';
+    s2._val.textContent = '0x' + src2[i];
+    s2.title = `src2[${i}] = 0x${src2[i]} (lane ${laneOf(i)}, ${CFG.elemName} ${withinOf(i)}) — click to edit`;
+
+    const dEl = cells.dst[i];
+    const s = dstStatus(i);
+    let dtxt, dcls;
+    if(s.kind === 'val')      { dtxt = '0x'+s.val; dcls = 'dst-val'; }
+    else if(s.kind === 'zero'){ dtxt = zeroStr();  dcls = 'dst-zer'; }
+    else                      { dtxt = '0x'+s.val; dcls = 'dst-keep'; }
+    dEl.className = 'cell ' + dcls;
+    dEl._val.textContent = dtxt;
+    dEl.title = s.kind === 'val'  ? `dst[${i}] = 0x${s.val}`
+            :  s.kind === 'zero' ? `dst[${i}] = ${zeroStr()} (zeroed)`
+            :                      `dst[${i}] = 0x${s.val} (kept — k1 mask off)`;
+
+    const kEl = cells.k1[i];
+    const on = !!kmask[i];
+    kEl.className = 'cell km-cell' + (on ? '' : ' km-off');
+    kEl._val.textContent = on ? 1 : 0;
+    kEl.title = `k1[${i}] = ${on?1:0} → ${on ? 'pass-through' : (kmode==='zero' ? 'zero' : 'keep prior dst')}`;
+  }
+  for(let c=0; c<cells.imm.length; c++){
+    const el = cells.imm[c];
+    const v = getCtl(c);
+    const fromSrcNum = whichSrc(c);
+    const fromSrc = fromSrcNum === 1 ? 'src1' : 'src2';
+    el.className = 'cell imm-cell';
+    el._val.textContent = v;
+    el.title = `dst lane ${c} = imm8 field ${c} = ${v} → ${fromSrc} lane ${v}`;
+  }
+
+  const usedBits = LANES * BPC;
+  const usedNote = usedBits < 8 ? ` (bits [${usedBits-1}:0] used)` : '';
+  document.getElementById('imm-lbl').textContent = 'imm8 = 0x' + hex2(imm8) + usedNote;
+  refreshHover();
+}
+
+function refreshHover(){
+  for(let i=0; i<N; i++){
+    cells.src1[i].classList.toggle('lit', srcLitFor('src1', i));
+    cells.src2[i].classList.toggle('lit', srcLitFor('src2', i));
+
+    let lit = hovDst === i || hovK === i;
+    if(hovImm >= 0 && laneOf(i) === hovImm) lit = true;
+    if(hovSrc1 >= 0 || hovSrc2 >= 0){
+      const rt = srcRouteFor(i);
+      if(rt.src === 1 && rt.srcIdx === hovSrc1) lit = true;
+      if(rt.src === 2 && rt.srcIdx === hovSrc2) lit = true;
+    }
+    cells.dst[i].style.boxShadow = lit ? '0 0 0 2.5px #639922' : '';
+
+    const kActive = hovK === i || hovDst === i;
+    cells.k1[i].classList.toggle('active', kActive);
+  }
+  // chunk-grid highlights: which whole 128-bit lanes are active?
+  const activeSrcChunks = { 1: new Set(), 2: new Set() };
+  const activeDstChunks = new Set();
+  if(hovImm >= 0){
+    activeDstChunks.add(hovImm);
+    activeSrcChunks[whichSrc(hovImm)].add(getCtl(hovImm));
+  }
+  if(hovDst >= 0){
+    const c = laneOf(hovDst);
+    activeDstChunks.add(c);
+    activeSrcChunks[whichSrc(c)].add(getCtl(c));
+  }
+  if(hovK >= 0){
+    const c = laneOf(hovK);
+    activeDstChunks.add(c);
+    activeSrcChunks[whichSrc(c)].add(getCtl(c));
+  }
+  if(hovSrc1 >= 0) activeSrcChunks[1].add(laneOf(hovSrc1));
+  if(hovSrc2 >= 0) activeSrcChunks[2].add(laneOf(hovSrc2));
+  for(let c=0; c<LANES; c++){
+    document.getElementById('src1-chunk-'+c).classList.toggle('lit-chunk', activeSrcChunks[1].has(c));
+    document.getElementById('src2-chunk-'+c).classList.toggle('lit-chunk', activeSrcChunks[2].has(c));
+    document.getElementById('dst-chunk-'+c).classList.toggle('lit-chunk', activeDstChunks.has(c));
+  }
+  for(let c=0; c<cells.imm.length; c++){
+    let active = hovImm === c;
+    if(hovDst >= 0 && laneOf(hovDst) === c) active = true;
+    if(hovK   >= 0 && laneOf(hovK)   === c) active = true;
+    cells.imm[c].classList.toggle('active', active);
+  }
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to inspect the shuffle.'; }
+function srcArrName(num){ return num === 1 ? 'src1' : 'src2'; }
+function srcArr(num){ return num === 1 ? src1 : src2; }
+
+function updateInfo(){
+  const box = document.getElementById('info');
+
+  if(hovK >= 0){
+    const on = !!kmask[hovK];
+    const r = srcRouteFor(hovK);
+    const arr = srcArr(r.src), name = srcArrName(r.src);
+    const path = `imm8 field ${r.dstChunk} = ${getCtl(r.dstChunk)} → <strong>${name} lane ${r.srcChunk}</strong> [${r.srcIdx}] = 0x${arr[r.srcIdx]}`;
+    if(on){
+      box.innerHTML = `<strong>k1[${hovK}] = 1</strong> — pass-through · ${path} → <strong>dst[${hovK}] = 0x${arr[r.srcIdx]}</strong>`;
+    } else {
+      const tail = kmode === 'zero'
+        ? `<strong>dst[${hovK}] = ${zeroStr()}</strong> (zeroed by {z})`
+        : `<strong>dst[${hovK}] = 0x${dstPrev[hovK]}</strong> (kept — prior value)`;
+      box.innerHTML = `<strong>k1[${hovK}] = 0</strong> — shuffle suppressed · ${path} → ${tail}`;
+    }
+    return;
+  }
+
+  if(hovImm >= 0){
+    const v = getCtl(hovImm);
+    const fromSrcNum = whichSrc(hovImm);
+    const name = srcArrName(fromSrcNum);
+    const bitsHi = (hovImm+1)*BPC - 1, bitsLo = hovImm*BPC;
+    const bitDesc = BPC === 1 ? `imm8 bit ${bitsLo}` : `imm8[${bitsHi}:${bitsLo}]`;
+    box.innerHTML = `<strong>${bitDesc} = ${v}</strong> — dst lane ${hovImm} (${CFG.elemNameP} ${hovImm*LANE}..${hovImm*LANE+LANE-1}) ← <strong>${name} lane ${v}</strong> (${CFG.elemNameP} ${v*LANE}..${v*LANE+LANE-1})`;
+    return;
+  }
+
+  const hovSrc = hovSrc1 >= 0 ? hovSrc1 : hovSrc2;
+  const hovSrcNum = hovSrc1 >= 0 ? 1 : (hovSrc2 >= 0 ? 2 : 0);
+  if(hovSrcNum){
+    const arr = srcArr(hovSrcNum), name = srcArrName(hovSrcNum);
+    const refs = [];
+    for(let i=0; i<N; i++){
+      if(kmode !== 'off' && !kmask[i]) continue;
+      const rt = srcRouteFor(i);
+      if(rt.src === hovSrcNum && rt.srcIdx === hovSrc) refs.push(i);
+    }
+    const laneInfo = ` <span class="hint">(lane ${laneOf(hovSrc)}, ${CFG.elemName} ${withinOf(hovSrc)})</span>`;
+    if(refs.length === 0){
+      box.innerHTML = `<strong>${name}[${hovSrc}] = 0x${arr[hovSrc]}</strong>${laneInfo} — not selected by imm8 (won't appear in dst)`;
+    } else {
+      box.innerHTML = `<strong>${name}[${hovSrc}] = 0x${arr[hovSrc]}</strong>${laneInfo} → copied to dst ${CFG.elemName}${refs.length>1?'s':''} <strong>${refs.join(', ')}</strong>`;
+    }
+    return;
+  }
+
+  if(hovDst < 0){ resetInfo(); return; }
+
+  const i = hovDst;
+  if(kmode !== 'off' && !kmask[i]){
+    const tail = kmode === 'zero'
+      ? `<strong>dst[${i}] = ${zeroStr()}</strong> (zeroed by {z})`
+      : `<strong>dst[${i}] = 0x${dstPrev[i]}</strong> (kept)`;
+    box.innerHTML = `<strong>k1[${i}] = 0</strong> — shuffle suppressed → ${tail}`;
+    return;
+  }
+  const r = srcRouteFor(i);
+  const arr = srcArr(r.src), name = srcArrName(r.src);
+  const dstLaneNote = ` <span class="hint">(dst lane ${r.dstChunk})</span>`;
+  box.innerHTML = `<strong>imm8 field ${r.dstChunk} = ${getCtl(r.dstChunk)}</strong>${dstLaneNote} → reads <strong>${name} lane ${r.srcChunk}</strong> [${r.srcIdx}] = 0x${arr[r.srcIdx]} → <strong>dst[${i}] = 0x${arr[r.srcIdx]}</strong>`;
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openSrcPopup(name, i, el){
+  closePopup();
+  const arr = name === 'src1' ? src1 : src2;
+  const c = laneOf(i);
+  const cg = document.getElementById(`${name}-chunk-${c}`);
+  const gRect = cg.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  const leftPx = eRect.left + eRect.width/2 - gRect.left;
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup'; pop._popTarget = name;
+  pop.style.left = leftPx + 'px';
+  cg.style.position = 'relative';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = `${name}[${i}]`;
+
+  const inp = document.createElement('input');
+  const placeholder = '0x' + '0'.repeat(CFG.elemBytes*2);
+  inp.type = 'text'; inp.value = '0x' + arr[i]; inp.placeholder = placeholder;
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitSrc(name, i, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitSrc(name, i, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  for(const b of [0x00, 0xFF, 0xAA, 0x55]){
+    const s = hex2(b).repeat(CFG.elemBytes);
+    const btn = document.createElement('button');
+    btn.textContent = '0x' + s;
+    btn.onclick = () => {
+      if(name === 'src1') src1[i] = s; else src2[i] = s;
+      closePopup(); render(); drawAllArrows();
+    };
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  cg.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function openImmPopup(el){
+  closePopup();
+  const eRect = el.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup'; pop._popTarget = 'imm';
+  pop.style.position = 'fixed';
+  pop.style.left = (eRect.left + eRect.width/2) + 'px';
+  pop.style.bottom = (window.innerHeight - eRect.top + 6) + 'px';
+  pop.style.transform = 'translateX(-50%)';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = 'imm8';
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x' + hex2(imm8); inp.placeholder = '0x00–0xFF';
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitImm(inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitImm(inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row);
+  document.body.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function commitSrc(name, i, raw){
+  const s = raw.trim().replace(/^0x/i, '').toUpperCase();
+  if(!/^[0-9A-F]*$/.test(s) || s.length === 0 || s.length > CFG.elemBytes*2) return;
+  const v = s.padStart(CFG.elemBytes*2, '0');
+  if(name === 'src1') src1[i] = v; else src2[i] = v;
+  render(); drawAllArrows();
+}
+function commitImm(raw){
+  const v = parseInt(raw.trim().replace(/^0x/i, ''), 16);
+  if(!isNaN(v) && v >= 0 && v <= 0xFF){
+    imm8 = v;
+    document.getElementById('preset').value = '';
+    render(); drawAllArrows();
+  }
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+function drawAllArrows(){ drawArrows(); }
+
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  if(!canv) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canv.offsetWidth;
+  canv.width = W*dpr; canv.height = 54*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, 54);
+
+  // Pairs: [srcName, srcGlobalIdx, dstGlobalIdx]
+  const pairs = [];
+
+  if(hovImm >= 0){
+    const c = hovImm;
+    const f = getCtl(c);
+    const srcNum = whichSrc(c);
+    const name = srcNum === 1 ? 'src1' : 'src2';
+    for(let k=0; k<LANE; k++){
+      pairs.push([name, f*LANE + k, c*LANE + k]);
+    }
+  } else if(hovDst >= 0 || hovK >= 0){
+    const ref = hovDst >= 0 ? hovDst : hovK;
+    const rt = srcRouteFor(ref);
+    pairs.push([rt.src === 1 ? 'src1' : 'src2', rt.srcIdx, ref]);
+  } else if(hovSrc1 >= 0){
+    for(let i=0; i<N; i++){
+      const rt = srcRouteFor(i);
+      if(rt.src === 1 && rt.srcIdx === hovSrc1) pairs.push(['src1', hovSrc1, i]);
+    }
+  } else if(hovSrc2 >= 0){
+    for(let i=0; i<N; i++){
+      const rt = srcRouteFor(i);
+      if(rt.src === 2 && rt.srcIdx === hovSrc2) pairs.push(['src2', hovSrc2, i]);
+    }
+  }
+  if(!pairs.length) return;
+
+  const canvRect = canv.getBoundingClientRect();
+  function cx(name, globalIdx){
+    const c = laneOf(globalIdx);
+    const cg = document.getElementById(`${name}-chunk-${c}`);
+    const cell = cg.querySelectorAll('.cell')[withinOf(globalIdx)];
+    if(!cell) return 0;
+    const r = cell.getBoundingClientRect();
+    return r.left + r.width/2 - canvRect.left;
+  }
+
+  for(const [name, si, di] of pairs){
+    const color = name === 'src1' ? '#378ADD' : '#8B5CF6';
+    const x1 = cx(name, si), x2 = cx('dst', di);
+    const y1 = 2, y2 = 50, my = (y1+y2)/2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 5, y2 - 8);
+    ctx.lineTo(x2 + 5, y2 - 8);
+    ctx.closePath();
+    ctx.fillStyle = color; ctx.fill();
+  }
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => selectInstruction(t.dataset.instr));
+});
+window.addEventListener('hashchange', () => {
+  const name = location.hash.replace(/^#/, '');
+  if(CONFIGS[name] && (!CFG || CFG !== CONFIGS[name])) selectInstruction(name);
+});
+window.addEventListener('resize', drawAllArrows);
+
+const initialName = (CONFIGS[location.hash.replace(/^#/, '')] ? location.hash.slice(1) : 'vshuff32x4');
+selectInstruction(initialName);
+</script>
+</body>
+</html>
