@@ -128,7 +128,6 @@
   .imm-cell { background: #FAEEDA; border-color: #EF9F27; color: #633806; cursor: pointer; }
   .imm-cell:hover { background: #FAC775; }
   .imm-cell.active { box-shadow: 0 0 0 2.5px #EF9F27; transform: scale(1.08); z-index: 3; }
-  .imm-cell.disabled { opacity: 0.4; cursor: not-allowed; }
 
   .km-cell  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 32px; }
   .km-cell:hover { background: #D8C9F4; }
@@ -221,12 +220,7 @@
 <body>
 <div class="card">
 
-  <div class="tabs" id="tabs">
-    <button class="tab" data-instr="vshuff32x4">VSHUFF32x4</button>
-    <button class="tab" data-instr="vshuff64x2">VSHUFF64x2</button>
-    <button class="tab" data-instr="vshufi32x4">VSHUFI32x4</button>
-    <button class="tab" data-instr="vshufi64x2">VSHUFI64x2</button>
-  </div>
+  <div class="tabs" id="tabs"></div>
 
   <div class="header">
     <span class="title" id="title"></span>
@@ -333,6 +327,14 @@ let src1, src2, kmask, dstPrev;
 let hovDst = -1, hovSrc1 = -1, hovSrc2 = -1, hovK = -1, hovImm = -1;
 let cells;  // { src1:[…], src2:[…], dst:[…], k1:[…], imm:[…] } — flat per-row
 
+function setHover(kind, idx = -1){
+  hovDst  = kind === 'dst'  ? idx : -1;
+  hovSrc1 = kind === 'src1' ? idx : -1;
+  hovSrc2 = kind === 'src2' ? idx : -1;
+  hovK    = kind === 'k'    ? idx : -1;
+  hovImm  = kind === 'imm'  ? idx : -1;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function hex2(v){ return v.toString(16).toUpperCase().padStart(2, '0'); }
 function zeroStr(){ return '0x' + '0'.repeat(CFG.elemBytes*2); }
@@ -395,9 +397,8 @@ function srcInit(srcNum, i){
 
 // ─── Init / instruction switching ───────────────────────────────────────────
 function identityImm(){
-  // ctl[c] = c   →   identity (each dst lane picks the matching lane index)
   let v = 0;
-  for(let c=0; c<LANES; c++) v |= (c & ((1<<BPC)-1)) << (c*BPC);
+  for(let c=0; c<LANES; c++) v |= (c & ctlMask()) << (c*BPC);
   return v & 0xFF;
 }
 
@@ -416,7 +417,7 @@ function selectInstruction(name){
   CFG = CONFIGS[name];
   LANE = CFG.lane;
   kmode = 'off';
-  hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
+  setHover();
   closePopup();
   initData(CFG.widths[0]);
   imm8 = identityImm();
@@ -441,16 +442,17 @@ function selectInstruction(name){
   if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
 }
 
+const PRESETS = {
+  identity: { label: 'Identity (in order)', fn: c => c },
+  lowall:   { label: 'All lowest lane',     fn: _ => 0 },
+  highall:  { label: 'All highest lane',    fn: _ => LANES - 1 },
+  reverse:  { label: 'Reverse lanes',       fn: c => LANES - 1 - c },
+};
+
 function rebuildPresetOptions(){
   const sel = document.getElementById('preset');
   sel.innerHTML = '';
-  const opts = [
-    ['identity', 'Identity (in order)'],
-    ['lowall',   'All lowest lane'],
-    ['highall',  'All highest lane'],
-    ['reverse',  'Reverse lanes'],
-  ];
-  for(const [val, label] of opts){
+  for(const [val, {label}] of Object.entries(PRESETS)){
     const opt = document.createElement('option');
     opt.value = val; opt.textContent = label;
     sel.appendChild(opt);
@@ -471,16 +473,12 @@ function rebuildWidthOptions(){
 }
 
 function applyPreset(k){
-  let fn;
-  if(k === 'identity') fn = c => c;
-  else if(k === 'lowall')  fn = _ => 0;
-  else if(k === 'highall') fn = _ => LANES - 1;
-  else if(k === 'reverse') fn = c => LANES - 1 - c;
-  else return;
+  const p = PRESETS[k];
+  if(!p) return;
   imm8 = 0;
-  for(let c=0; c<LANES; c++) setCtl(c, fn(c));
+  for(let c=0; c<LANES; c++) setCtl(c, p.fn(c));
   closePopup();
-  hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
+  setHover();
   render(); drawAllArrows();
 }
 
@@ -491,8 +489,7 @@ function changeWidth(w){
   const preset = document.getElementById('preset').value || 'identity';
   rebuildLayout();
   syncBadges();
-  // re-apply preset under new layout
-  applyPreset(['identity','lowall','highall','reverse'].includes(preset) ? preset : 'identity');
+  applyPreset(PRESETS[preset] ? preset : 'identity');
 }
 
 function changeKmaskMode(m){
@@ -546,9 +543,9 @@ function rebuildLayout(){
   closePopup();
   const root = document.getElementById('layout');
   root.innerHTML = '';
-  cells = { src1: [], src2: [], dst: [], k1: [], imm: [] };
+  cells = { src1: [], src2: [], dst: [], k1: [], imm: [],
+            src1Chunks: [], src2Chunks: [], dstChunks: [] };
 
-  // header showing the 128-bit-lane tags aligned with the grid columns
   root.appendChild(chunkTags());
 
   const lowRange  = LANES/2 === 1 ? 'dst lane 0' : `dst lanes [0..${LANES/2-1}]`;
@@ -608,12 +605,12 @@ function buildChunksRow(name, baseClass, parent){
   (parent || document.getElementById('layout')).appendChild(row);
 
   const arr = [];
+  const chunks = [];
   for(let c=0; c<LANES; c++){
     const cg = document.createElement('div');
     cg.className = 'chunk-grid';
     cg.style.setProperty('--cols', LANE);
     cg.dataset.chunk = c;
-    cg.id = `${name}-chunk-${c}`;
     for(let k=0; k<LANE; k++){
       const i = c * LANE + k;
       const el = makeCell(`[${i}]`);
@@ -624,7 +621,9 @@ function buildChunksRow(name, baseClass, parent){
       arr.push(el);
     }
     row.appendChild(cg);
+    chunks.push(cg);
   }
+  cells[name + 'Chunks'] = chunks;
   return arr;
 }
 
@@ -632,31 +631,31 @@ function wireCellEvents(name, i, el){
   if(name === 'src1' || name === 'src2'){
     el.onclick = () => openSrcPopup(name, i, el);
     el.addEventListener('mouseenter', () => {
-      if(name === 'src1'){ hovSrc1 = i; hovSrc2 = -1; }
-      else               { hovSrc2 = i; hovSrc1 = -1; }
-      hovDst = -1; hovK = -1; hovImm = -1;
+      setHover(name, i);
       refreshHover(); drawAllArrows(); updateInfo();
     });
     el.addEventListener('mouseleave', () => {
-      if(name === 'src1') hovSrc1 = -1; else hovSrc2 = -1;
+      setHover();
       refreshHover(); drawAllArrows(); resetInfo();
     });
   } else if(name === 'dst'){
     el.addEventListener('mouseenter', () => {
-      hovDst = i; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
+      setHover('dst', i);
       refreshHover(); drawAllArrows(); updateInfo();
     });
     el.addEventListener('mouseleave', () => {
-      hovDst = -1; refreshHover(); drawAllArrows(); resetInfo();
+      setHover();
+      refreshHover(); drawAllArrows(); resetInfo();
     });
   } else if(name === 'k1'){
-    el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; hovK = i; render(); drawAllArrows(); updateInfo(); };
+    el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; setHover('k', i); render(); drawAllArrows(); updateInfo(); };
     el.addEventListener('mouseenter', () => {
-      hovK = i; hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovImm = -1;
+      setHover('k', i);
       refreshHover(); drawAllArrows(); updateInfo();
     });
     el.addEventListener('mouseleave', () => {
-      hovK = -1; refreshHover(); drawAllArrows(); resetInfo();
+      setHover();
+      refreshHover(); drawAllArrows(); resetInfo();
     });
   }
 }
@@ -666,8 +665,7 @@ function buildImmCells(){
   g.innerHTML = '';
   const arr = [];
   for(let c=0; c<LANES; c++){
-    const fromSrcNum = whichSrc(c);
-    const fromSrc = fromSrcNum === 1 ? 'src1' : 'src2';
+    const fromSrc = srcArrName(whichSrc(c));
     const bitsHi = (c+1)*BPC - 1, bitsLo = c*BPC;
     const idxLabel = BPC === 1
       ? `${fromSrc} bit ${bitsLo}`
@@ -678,16 +676,17 @@ function buildImmCells(){
       const mod = 1 << BPC;
       setCtl(c, (getCtl(c) + 1) % mod);
       document.getElementById('preset').value = '';
-      hovImm = c; hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
+      setHover('imm', c);
       render(); drawAllArrows(); updateInfo();
     };
     el.oncontextmenu = e => { e.preventDefault(); openImmPopup(el); };
     el.addEventListener('mouseenter', () => {
-      hovImm = c; hovDst = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
+      setHover('imm', c);
       refreshHover(); drawAllArrows(); updateInfo();
     });
     el.addEventListener('mouseleave', () => {
-      hovImm = -1; refreshHover(); drawAllArrows(); resetInfo();
+      setHover();
+      refreshHover(); drawAllArrows(); resetInfo();
     });
     g.appendChild(el);
     arr.push(el);
@@ -746,8 +745,7 @@ function render(){
   for(let c=0; c<cells.imm.length; c++){
     const el = cells.imm[c];
     const v = getCtl(c);
-    const fromSrcNum = whichSrc(c);
-    const fromSrc = fromSrcNum === 1 ? 'src1' : 'src2';
+    const fromSrc = srcArrName(whichSrc(c));
     el.className = 'cell imm-cell';
     el._val.textContent = v;
     el.title = `dst lane ${c} = imm8 field ${c} = ${v} → ${fromSrc} lane ${v}`;
@@ -776,7 +774,6 @@ function refreshHover(){
     const kActive = hovK === i || hovDst === i;
     cells.k1[i].classList.toggle('active', kActive);
   }
-  // chunk-grid highlights: which whole 128-bit lanes are active?
   const activeSrcChunks = { 1: new Set(), 2: new Set() };
   const activeDstChunks = new Set();
   if(hovImm >= 0){
@@ -796,9 +793,9 @@ function refreshHover(){
   if(hovSrc1 >= 0) activeSrcChunks[1].add(laneOf(hovSrc1));
   if(hovSrc2 >= 0) activeSrcChunks[2].add(laneOf(hovSrc2));
   for(let c=0; c<LANES; c++){
-    document.getElementById('src1-chunk-'+c).classList.toggle('lit-chunk', activeSrcChunks[1].has(c));
-    document.getElementById('src2-chunk-'+c).classList.toggle('lit-chunk', activeSrcChunks[2].has(c));
-    document.getElementById('dst-chunk-'+c).classList.toggle('lit-chunk', activeDstChunks.has(c));
+    cells.src1Chunks[c].classList.toggle('lit-chunk', activeSrcChunks[1].has(c));
+    cells.src2Chunks[c].classList.toggle('lit-chunk', activeSrcChunks[2].has(c));
+    cells.dstChunks[c].classList.toggle('lit-chunk', activeDstChunks.has(c));
   }
   for(let c=0; c<cells.imm.length; c++){
     let active = hovImm === c;
@@ -812,6 +809,8 @@ function refreshHover(){
 function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to inspect the shuffle.'; }
 function srcArrName(num){ return num === 1 ? 'src1' : 'src2'; }
 function srcArr(num){ return num === 1 ? src1 : src2; }
+function srcArrByName(name){ return name === 'src1' ? src1 : src2; }
+function setSrc(name, i, v){ if(name === 'src1') src1[i] = v; else src2[i] = v; }
 
 function updateInfo(){
   const box = document.getElementById('info');
@@ -834,8 +833,7 @@ function updateInfo(){
 
   if(hovImm >= 0){
     const v = getCtl(hovImm);
-    const fromSrcNum = whichSrc(hovImm);
-    const name = srcArrName(fromSrcNum);
+    const name = srcArrName(whichSrc(hovImm));
     const bitsHi = (hovImm+1)*BPC - 1, bitsLo = hovImm*BPC;
     const bitDesc = BPC === 1 ? `imm8 bit ${bitsLo}` : `imm8[${bitsHi}:${bitsLo}]`;
     box.innerHTML = `<strong>${bitDesc} = ${v}</strong> — dst lane ${hovImm} (${CFG.elemNameP} ${hovImm*LANE}..${hovImm*LANE+LANE-1}) ← <strong>${name} lane ${v}</strong> (${CFG.elemNameP} ${v*LANE}..${v*LANE+LANE-1})`;
@@ -878,13 +876,10 @@ function updateInfo(){
 }
 
 // ─── Popups ─────────────────────────────────────────────────────────────────
-function openSrcPopup(name, i, el){
+function openPopup({ anchor, parent, label, value, placeholder, onCommit, extras }){
   closePopup();
-  const arr = name === 'src1' ? src1 : src2;
-  const c = laneOf(i);
-  const cg = document.getElementById(`${name}-chunk-${c}`);
-  const gRect = cg.getBoundingClientRect();
-  const eRect = el.getBoundingClientRect();
+  const gRect = parent.getBoundingClientRect();
+  const eRect = anchor.getBoundingClientRect();
   const leftPx = eRect.left + eRect.width/2 - gRect.left;
 
   const pop = document.createElement('div');
@@ -892,24 +887,37 @@ function openSrcPopup(name, i, el){
   pop.style.left = leftPx + 'px';
 
   const lbl = document.createElement('div');
-  lbl.className = 'popup-lbl'; lbl.textContent = `${name}[${i}]`;
+  lbl.className = 'popup-lbl'; lbl.textContent = label;
 
   const inp = document.createElement('input');
-  const placeholder = '0x' + '0'.repeat(CFG.elemBytes*2);
-  inp.type = 'text'; inp.value = '0x' + arr[i]; inp.placeholder = placeholder;
+  inp.type = 'text'; inp.value = value; inp.placeholder = placeholder;
   inp.onkeydown = e => {
-    if(e.key === 'Enter'){ commitSrc(name, i, inp.value); closePopup(); }
+    if(e.key === 'Enter'){ onCommit(inp.value); closePopup(); }
     if(e.key === 'Escape') closePopup();
   };
 
   const row = document.createElement('div'); row.className = 'popup-row';
   const btnOk = document.createElement('button');
   btnOk.textContent = 'Set';
-  btnOk.onclick = () => { commitSrc(name, i, inp.value); closePopup(); };
+  btnOk.onclick = () => { onCommit(inp.value); closePopup(); };
   const btnX = document.createElement('button');
   btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
   btnX.onclick = closePopup;
   row.appendChild(btnOk); row.appendChild(btnX);
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row);
+  if(extras) pop.appendChild(extras);
+  parent.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== anchor){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function openSrcPopup(name, i, el){
+  const arr = srcArrByName(name);
+  const cg = cells[name + 'Chunks'][laneOf(i)];
 
   const qg = document.createElement('div'); qg.className = 'quick-grid';
   for(const b of [0x00, 0xFF, 0xAA, 0x55]){
@@ -917,64 +925,38 @@ function openSrcPopup(name, i, el){
     const btn = document.createElement('button');
     btn.textContent = '0x' + s;
     btn.onclick = () => {
-      if(name === 'src1') src1[i] = s; else src2[i] = s;
+      setSrc(name, i, s);
       closePopup(); render(); drawAllArrows();
     };
     qg.appendChild(btn);
   }
 
-  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
-  cg.appendChild(pop);
-  setTimeout(() => inp.select(), 0);
-
-  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
-  pop._out = outside;
-  document.addEventListener('mousedown', outside);
+  openPopup({
+    anchor: el,
+    parent: cg,
+    label: `${name}[${i}]`,
+    value: '0x' + arr[i],
+    placeholder: '0x' + '0'.repeat(CFG.elemBytes*2),
+    onCommit: raw => commitSrc(name, i, raw),
+    extras: qg,
+  });
 }
 
 function openImmPopup(el){
-  closePopup();
-  const grid = document.getElementById('imm-grid');
-  const gRect = grid.getBoundingClientRect();
-  const eRect = el.getBoundingClientRect();
-  const leftPx = eRect.left + eRect.width/2 - gRect.left;
-  const pop = document.createElement('div');
-  pop.className = 'popup'; pop.id = 'active-popup';
-  pop.style.left = leftPx + 'px';
-
-  const lbl = document.createElement('div');
-  lbl.className = 'popup-lbl'; lbl.textContent = 'imm8';
-
-  const inp = document.createElement('input');
-  inp.type = 'text'; inp.value = '0x' + hex2(imm8); inp.placeholder = '0x00–0xFF';
-  inp.onkeydown = e => {
-    if(e.key === 'Enter'){ commitImm(inp.value); closePopup(); }
-    if(e.key === 'Escape') closePopup();
-  };
-
-  const row = document.createElement('div'); row.className = 'popup-row';
-  const btnOk = document.createElement('button');
-  btnOk.textContent = 'Set';
-  btnOk.onclick = () => { commitImm(inp.value); closePopup(); };
-  const btnX = document.createElement('button');
-  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
-  btnX.onclick = closePopup;
-  row.appendChild(btnOk); row.appendChild(btnX);
-
-  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row);
-  grid.appendChild(pop);
-  setTimeout(() => inp.select(), 0);
-
-  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
-  pop._out = outside;
-  document.addEventListener('mousedown', outside);
+  openPopup({
+    anchor: el,
+    parent: document.getElementById('imm-grid'),
+    label: 'imm8',
+    value: '0x' + hex2(imm8),
+    placeholder: '0x00–0xFF',
+    onCommit: commitImm,
+  });
 }
 
 function commitSrc(name, i, raw){
   const s = raw.trim().replace(/^0x/i, '').toUpperCase();
   if(!/^[0-9A-F]*$/.test(s) || s.length === 0 || s.length > CFG.elemBytes*2) return;
-  const v = s.padStart(CFG.elemBytes*2, '0');
-  if(name === 'src1') src1[i] = v; else src2[i] = v;
+  setSrc(name, i, s.padStart(CFG.elemBytes*2, '0'));
   render(); drawAllArrows();
 }
 function commitImm(raw){
@@ -1008,15 +990,14 @@ function drawAllArrows(){
   if(hovImm >= 0){
     const c = hovImm;
     const f = getCtl(c);
-    const srcNum = whichSrc(c);
-    const name = srcNum === 1 ? 'src1' : 'src2';
+    const name = srcArrName(whichSrc(c));
     for(let k=0; k<LANE; k++){
       pairs.push([name, f*LANE + k, c*LANE + k]);
     }
   } else if(hovDst >= 0 || hovK >= 0){
     const ref = hovDst >= 0 ? hovDst : hovK;
     const rt = srcRouteFor(ref);
-    pairs.push([rt.src === 1 ? 'src1' : 'src2', rt.srcIdx, ref]);
+    pairs.push([srcArrName(rt.src), rt.srcIdx, ref]);
   } else if(hovSrc1 >= 0){
     for(let i=0; i<N; i++){
       const rt = srcRouteFor(i);
@@ -1032,9 +1013,7 @@ function drawAllArrows(){
 
   const canvRect = canv.getBoundingClientRect();
   function cx(name, globalIdx){
-    const c = laneOf(globalIdx);
-    const cg = document.getElementById(`${name}-chunk-${c}`);
-    const cell = cg.querySelectorAll('.cell')[withinOf(globalIdx)];
+    const cell = cells[name][globalIdx];
     if(!cell) return 0;
     const r = cell.getBoundingClientRect();
     return r.left + r.width/2 - canvRect.left;
@@ -1058,17 +1037,26 @@ function drawAllArrows(){
 }
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────────
-document.querySelectorAll('.tab').forEach(t => {
-  t.addEventListener('click', () => selectInstruction(t.dataset.instr));
-});
-window.addEventListener('hashchange', () => {
+function nameFromHash(){
   const name = location.hash.replace(/^#/, '');
-  if(CONFIGS[name] && (!CFG || CFG !== CONFIGS[name])) selectInstruction(name);
+  return CONFIGS[name] ? name : 'vshuff32x4';
+}
+
+const tabBar = document.getElementById('tabs');
+for(const [key, cfg] of Object.entries(CONFIGS)){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = key;
+  btn.textContent = cfg.title;
+  btn.addEventListener('click', () => selectInstruction(key));
+  tabBar.appendChild(btn);
+}
+window.addEventListener('hashchange', () => {
+  const name = nameFromHash();
+  if(CFG !== CONFIGS[name]) selectInstruction(name);
 });
 window.addEventListener('resize', drawAllArrows);
-
-const initialName = (CONFIGS[location.hash.replace(/^#/, '')] ? location.hash.slice(1) : 'vshuff32x4');
-selectInstruction(initialName);
+selectInstruction(nameFromHash());
 </script>
 </body>
 </html>
