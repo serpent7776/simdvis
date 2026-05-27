@@ -102,8 +102,8 @@
     padding: 2px;
     background: transparent;
     border: 0.5px dashed transparent;
+    position: relative;
   }
-  .chunks-row .chunk-grid + .chunk-grid::before { content: none; }
   .chunk-grid.lit-chunk { border-color: var(--border2); background: var(--bg2); }
 
   .cell {
@@ -404,7 +404,7 @@ function identityImm(){
 function initData(n){
   N = n;
   LANES = N / LANE;
-  BPC = Math.round(Math.log2(LANES));
+  BPC = Math.log2(LANES);
   src1    = Array.from({length:N}, (_,i) => srcInit(1, i));
   src2    = Array.from({length:N}, (_,i) => srcInit(2, i));
   kmask   = Array.from({length:N}, () => 1);
@@ -489,11 +489,10 @@ function changeWidth(w){
   if(newN === N) return;
   initData(newN);
   const preset = document.getElementById('preset').value || 'identity';
-  imm8 = identityImm();
   rebuildLayout();
   syncBadges();
   // re-apply preset under new layout
-  applyPreset(preset in {identity:1, lowall:1, highall:1, reverse:1} ? preset : 'identity');
+  applyPreset(['identity','lowall','highall','reverse'].includes(preset) ? preset : 'identity');
 }
 
 function changeKmaskMode(m){
@@ -889,9 +888,8 @@ function openSrcPopup(name, i, el){
   const leftPx = eRect.left + eRect.width/2 - gRect.left;
 
   const pop = document.createElement('div');
-  pop.className = 'popup'; pop.id = 'active-popup'; pop._popTarget = name;
+  pop.className = 'popup'; pop.id = 'active-popup';
   pop.style.left = leftPx + 'px';
-  cg.style.position = 'relative';
 
   const lbl = document.createElement('div');
   lbl.className = 'popup-lbl'; lbl.textContent = `${name}[${i}]`;
@@ -936,13 +934,13 @@ function openSrcPopup(name, i, el){
 
 function openImmPopup(el){
   closePopup();
+  const grid = document.getElementById('imm-grid');
+  const gRect = grid.getBoundingClientRect();
   const eRect = el.getBoundingClientRect();
+  const leftPx = eRect.left + eRect.width/2 - gRect.left;
   const pop = document.createElement('div');
-  pop.className = 'popup'; pop.id = 'active-popup'; pop._popTarget = 'imm';
-  pop.style.position = 'fixed';
-  pop.style.left = (eRect.left + eRect.width/2) + 'px';
-  pop.style.bottom = (window.innerHeight - eRect.top + 6) + 'px';
-  pop.style.transform = 'translateX(-50%)';
+  pop.className = 'popup'; pop.id = 'active-popup';
+  pop.style.left = leftPx + 'px';
 
   const lbl = document.createElement('div');
   lbl.className = 'popup-lbl'; lbl.textContent = 'imm8';
@@ -964,7 +962,7 @@ function openImmPopup(el){
   row.appendChild(btnOk); row.appendChild(btnX);
 
   pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row);
-  document.body.appendChild(pop);
+  grid.appendChild(pop);
   setTimeout(() => inp.select(), 0);
 
   function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
@@ -993,9 +991,7 @@ function closePopup(){
 }
 
 // ─── Arrows ─────────────────────────────────────────────────────────────────
-function drawAllArrows(){ drawArrows(); }
-
-function drawArrows(){
+function drawAllArrows(){
   const canv = document.getElementById('arrows');
   if(!canv) return;
   const ctx = canv.getContext('2d');
