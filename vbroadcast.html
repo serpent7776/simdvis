@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VBROADCAST family — Interactive Broadcast Visualisers</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 920px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .br { background: #F7C1C1; color: #501313; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .br { background: #791F1F; color: #F7C1C1; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); column-gap: 3px; row-gap: 3px; }
+  .src-grid { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 96px)); column-gap: 3px; row-gap: 3px; justify-content: center; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 46px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 11px; line-height: 1; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+  .src-cell  { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .src-cell:hover { background: #B5D4F4; }
+  .src-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .km-cell  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 32px; }
+  .km-cell:hover { background: #D8C9F4; }
+  .km-cell.km-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km-cell.km-off:hover { background: #E4E1D5; }
+  .km-cell.active { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  .dst-val  { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-zer  { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: default; }
+  .dst-keep { background: #F4F0FA; border-color: #8367C7; color: #2A1356; cursor: default; }
+
+  @media (prefers-color-scheme: dark) {
+    .src-cell  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .src-cell:hover { background: #185FA5; }
+    .src-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .km-cell  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km-cell:hover { background: #4F2D94; }
+    .km-cell.km-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km-cell.km-off:hover { background: #3A3A38; }
+    .dst-val  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-zer  { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .dst-keep { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .hint { font-size: 11px; color: var(--text3); }
+
+  .flow { position: relative; }
+  .flow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+  .flow .reg-grid, .flow .src-grid { position: relative; z-index: 1; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctl[hidden] { display: none; }
+
+  .popup {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 160px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span style="flex:1"></span>
+    <label class="ctl" id="width-ctl">
+      Width:
+      <select id="width" onchange="changeWidth(this.value)"></select>
+    </label>
+    <label class="ctl" id="kmode-ctl">
+      Mask:
+      <select id="kmode" onchange="changeKmaskMode(this.value)">
+        <option value="off">none</option>
+        <option value="merge">{k1} merge</option>
+        <option value="zero">{k1}{z} zero</option>
+      </select>
+    </label>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="flow" id="flow">
+    <div class="row-lbl"><span class="badge bb">src</span><span class="hint" id="src-hint"></span></div>
+    <div class="src-grid" id="src-grid" style="--cols:1"></div>
+    <div style="height:46px"></div>
+    <div id="kmask-row" hidden>
+      <div class="row-lbl"><span class="badge bp">k1</span><span class="hint kmask-hint">click to toggle 0/1</span></div>
+      <div class="reg-grid" id="kmask-grid"></div>
+      <div style="height:8px"></div>
+    </div>
+    <div class="row-lbl"><span class="badge bg">dst</span><span class="hint" id="dst-hint"></span></div>
+    <div class="reg-grid" id="dst-grid"></div>
+    <canvas id="arrows"></canvas>
+  </div>
+
+  <div class="info" id="info">Hover over any cell to inspect the broadcast.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// Broadcast replicates a fixed-size unit taken from the bottom of the source
+// across the whole destination register: dst[i] = src[i % group].
+//   elemBytes : bytes per element (1=byte … 8=qword)
+//   group     : number of source elements in the broadcast unit
+//               (1 = scalar broadcast; >1 = 128-/256-bit chunk broadcast)
+//   widths    : allowed destination element counts (N) for the width selector
+//   kmask     : true if AVX-512 {k1} masking applies
+// Values are stored as zero-padded hex strings (elemBytes*2 chars) so that
+// 64-bit qwords are handled without JS 32-bit integer truncation.
+const CONFIGS = {
+  vpbroadcastb: {
+    title: 'VPBROADCASTB',
+    pageTitle: 'VPBROADCASTB — Interactive Byte Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vpbroadcastb:vpbroadcastw:vpbroadcastd:vpbroadcastq',
+    subtitle: 'Broadcast the low byte of the source to every byte of the destination: <code>dst[i] = src[0]</code>.',
+    elemBytes: 1, group: 1, widths: [16, 32, 64], kmask: true,
+    isaForWidth: (bits, km) => bits === 512 ? 'AVX-512BW' : (km === 'off' ? 'AVX2' : 'AVX-512BW+VL'),
+    srcInit: () => 'A7',
+    elemName: 'byte', elemNameP: 'bytes',
+  },
+  vpbroadcastw: {
+    title: 'VPBROADCASTW',
+    pageTitle: 'VPBROADCASTW — Interactive Word Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vpbroadcastb:vpbroadcastw:vpbroadcastd:vpbroadcastq',
+    subtitle: 'Broadcast the low word of the source to every word of the destination: <code>dst[i] = src[0]</code>.',
+    elemBytes: 2, group: 1, widths: [8, 16, 32], kmask: true,
+    isaForWidth: (bits, km) => bits === 512 ? 'AVX-512BW' : (km === 'off' ? 'AVX2' : 'AVX-512BW+VL'),
+    srcInit: () => 'B3D1',
+    elemName: 'word', elemNameP: 'words',
+  },
+  vpbroadcastd: {
+    title: 'VPBROADCASTD',
+    pageTitle: 'VPBROADCASTD — Interactive Dword Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vpbroadcastb:vpbroadcastw:vpbroadcastd:vpbroadcastq',
+    subtitle: 'Broadcast the low dword of the source to every dword of the destination: <code>dst[i] = src[0]</code>.',
+    elemBytes: 4, group: 1, widths: [4, 8, 16], kmask: true,
+    isaForWidth: (bits, km) => bits === 512 ? 'AVX-512F' : (km === 'off' ? 'AVX2' : 'AVX-512F+VL'),
+    srcInit: () => 'DEADBEEF',
+    elemName: 'dword', elemNameP: 'dwords',
+  },
+  vpbroadcastq: {
+    title: 'VPBROADCASTQ',
+    pageTitle: 'VPBROADCASTQ — Interactive Qword Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vpbroadcastb:vpbroadcastw:vpbroadcastd:vpbroadcastq',
+    subtitle: 'Broadcast the low qword of the source to every qword of the destination: <code>dst[i] = src[0]</code>.',
+    elemBytes: 8, group: 1, widths: [2, 4, 8], kmask: true,
+    isaForWidth: (bits, km) => bits === 512 ? 'AVX-512F' : (km === 'off' ? 'AVX2' : 'AVX-512F+VL'),
+    srcInit: () => 'CAFEF00DDEADBEEF',
+    elemName: 'qword', elemNameP: 'qwords',
+  },
+  vbroadcastss: {
+    title: 'VBROADCASTSS',
+    pageTitle: 'VBROADCASTSS — Interactive Scalar Single Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vbroadcast',
+    subtitle: 'Broadcast one single-precision (32-bit) float to every dword of the destination: <code>dst[i] = src[0]</code>. <span class="hint">src shows 0x3F800000 = 1.0f.</span>',
+    elemBytes: 4, group: 1, widths: [4, 8, 16], kmask: true,
+    isaForWidth: (bits, km) => bits === 512 ? 'AVX-512F' : (km === 'off' ? 'AVX2' : 'AVX-512F+VL'),
+    srcInit: () => '3F800000',
+    elemName: 'float', elemNameP: 'floats',
+  },
+  vbroadcastsd: {
+    title: 'VBROADCASTSD',
+    pageTitle: 'VBROADCASTSD — Interactive Scalar Double Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vbroadcast',
+    subtitle: 'Broadcast one double-precision (64-bit) float to every qword of the destination: <code>dst[i] = src[0]</code>. <span class="hint">No XMM form. src shows 0x3FF0000000000000 = 1.0.</span>',
+    elemBytes: 8, group: 1, widths: [4, 8], kmask: true,
+    isaForWidth: (bits, km) => bits === 512 ? 'AVX-512F' : (km === 'off' ? 'AVX2' : 'AVX-512F+VL'),
+    srcInit: () => '3FF0000000000000',
+    elemName: 'double', elemNameP: 'doubles',
+  },
+  vbroadcasti128: {
+    title: 'VBROADCASTF128 / VBROADCASTI128',
+    tab: 'VBROADCASTF128/I128',
+    pageTitle: 'VBROADCASTF128 / VBROADCASTI128 — Interactive 128-bit Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vbroadcast',
+    subtitle: 'Broadcast a 128-bit memory operand into both 128-bit lanes of a YMM register: <code>dst[i] = src[i mod 4]</code>. <span class="hint">Shown as four dwords.</span>',
+    elemBytes: 4, group: 4, widths: [8], kmask: false,
+    isaForWidth: () => 'AVX (F128) / AVX2 (I128)',
+    srcInit: unitTag,
+    elemName: 'dword', elemNameP: 'dwords',
+  },
+  vbroadcastf32x4: {
+    title: 'VBROADCASTF32X4 / VBROADCASTI32X4',
+    tab: 'VBROADCASTF32X4/I32X4',
+    pageTitle: 'VBROADCASTF32X4 / VBROADCASTI32X4 — Interactive 128-bit Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vbroadcast',
+    subtitle: 'Broadcast a 128-bit (4-dword) unit across every 128-bit lane of the destination: <code>dst[i] = src[i mod 4]</code>.',
+    elemBytes: 4, group: 4, widths: [8, 16], kmask: true,
+    isaForWidth: bits => bits === 512 ? 'AVX-512F' : 'AVX-512F+VL',
+    srcInit: unitTag,
+    elemName: 'dword', elemNameP: 'dwords',
+  },
+  vbroadcastf64x2: {
+    title: 'VBROADCASTF64X2 / VBROADCASTI64X2',
+    tab: 'VBROADCASTF64X2/I64X2',
+    pageTitle: 'VBROADCASTF64X2 / VBROADCASTI64X2 — Interactive 128-bit Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vbroadcast',
+    subtitle: 'Broadcast a 128-bit (2-qword) unit across every 128-bit lane of the destination: <code>dst[i] = src[i mod 2]</code>.',
+    elemBytes: 8, group: 2, widths: [4, 8], kmask: true,
+    isaForWidth: bits => bits === 512 ? 'AVX-512DQ' : 'AVX-512DQ+VL',
+    srcInit: unitTag,
+    elemName: 'qword', elemNameP: 'qwords',
+  },
+  vbroadcastf32x8: {
+    title: 'VBROADCASTF32X8 / VBROADCASTI32X8',
+    tab: 'VBROADCASTF32X8/I32X8',
+    pageTitle: 'VBROADCASTF32X8 / VBROADCASTI32X8 — Interactive 256-bit Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vbroadcast',
+    subtitle: 'Broadcast a 256-bit (8-dword) unit into both halves of a ZMM register: <code>dst[i] = src[i mod 8]</code>.',
+    elemBytes: 4, group: 8, widths: [16], kmask: true,
+    isaForWidth: () => 'AVX-512DQ',
+    srcInit: unitTag,
+    elemName: 'dword', elemNameP: 'dwords',
+  },
+  vbroadcastf64x4: {
+    title: 'VBROADCASTF64X4 / VBROADCASTI64X4',
+    tab: 'VBROADCASTF64X4/I64X4',
+    pageTitle: 'VBROADCASTF64X4 / VBROADCASTI64X4 — Interactive 256-bit Broadcast Visualiser',
+    isaRef: 'https://www.felixcloutier.com/x86/vbroadcast',
+    subtitle: 'Broadcast a 256-bit (4-qword) unit into both halves of a ZMM register: <code>dst[i] = src[i mod 4]</code>.',
+    elemBytes: 8, group: 4, widths: [8], kmask: true,
+    isaForWidth: () => 'AVX-512F',
+    srcInit: unitTag,
+    elemName: 'qword', elemNameP: 'qwords',
+  },
+};
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let CFG;
+let N, LANE, GROUP;
+let kmode = 'off';
+let src, kmask, dstPrev;
+let hovSrc = -1, hovDst = -1, hovK = -1;
+let cells;  // { src:[…], dst:[…], k1:[…] }
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hexW(){ return CFG.elemBytes * 2; }
+function zeroStr(){ return '0x' + '0'.repeat(hexW()); }
+function keepFill(){ return 'CC'.repeat(CFG.elemBytes); }
+function quickFill(b){ return b.toString(16).toUpperCase().padStart(2, '0').repeat(CFG.elemBytes); }
+// Per-unit-element seed: a distinct nibble per group index, widened to the element size.
+function unitTag(g){ return g.toString(16).toUpperCase().repeat(hexW()); }
+function normHex(raw){
+  const s = raw.trim().replace(/^0x/i, '');
+  if(!/^[0-9a-fA-F]+$/.test(s) || s.length > hexW()) return null;
+  return s.toUpperCase().padStart(hexW(), '0');
+}
+
+function writes(i){ return !(CFG.kmask && kmode !== 'off' && !kmask[i]); }
+
+// Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
+function wireHover(el, setHov){
+  el.addEventListener('mouseenter', () => { hovSrc=hovDst=hovK=-1; setHov(); refreshHover(); drawArrows(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hovSrc=hovDst=hovK=-1; refreshHover(); drawArrows(); resetInfo(); });
+}
+
+// What ends up in dst[i]?
+//   { kind:'val',  val } — broadcast source element
+//   { kind:'zero' }      — masked out with {z}
+//   { kind:'keep', val } — masked out with merge, prior dst kept
+function dstStatus(i){
+  if(!writes(i)) return kmode === 'zero' ? { kind:'zero' } : { kind:'keep', val: dstPrev[i] };
+  return { kind:'val', val: src[i % GROUP] };
+}
+
+function bitsTotal(){ return N * CFG.elemBytes * 8; }
+function isaLabel(){ return CFG.isaForWidth(bitsTotal(), kmode); }
+function regNameForBits(bits){ return bits === 128 ? 'XMM' : bits === 256 ? 'YMM' : 'ZMM'; }
+function widthLabel(){ const bits = bitsTotal(); return `${bits}-bit ${regNameForBits(bits)}`; }
+function srcBits(){ return GROUP * CFG.elemBytes * 8; }
+
+// ─── Init / instruction switching ───────────────────────────────────────────
+function initData(n){
+  N = n;
+  src     = Array.from({length:GROUP}, (_,g) => CFG.srcInit(g));
+  kmask   = Array.from({length:N}, () => 1);
+  dstPrev = Array.from({length:N}, () => keepFill());
+}
+
+function selectInstruction(name){
+  if(!CONFIGS[name]) name = 'vpbroadcastd';
+  CFG = CONFIGS[name];
+  GROUP = CFG.group;
+  LANE = 16 / CFG.elemBytes;            // elements per 128-bit lane
+  N = CFG.widths[CFG.widths.length - 1]; // default to the widest destination
+  kmode = 'off';
+  hovSrc = hovDst = hovK = -1;
+  closePopup();
+  initData(N);
+
+  document.title = CFG.pageTitle;
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.instr === name));
+  document.getElementById('title').textContent = CFG.title;
+  document.getElementById('subtitle').innerHTML = CFG.subtitle;
+  document.getElementById('isa-ref').href = CFG.isaRef;
+
+  rebuildWidthOptions();
+  document.getElementById('kmode-ctl').hidden = !CFG.kmask;
+  document.getElementById('kmode').value = 'off';
+
+  build();
+  syncBadges();
+  render(); drawArrows();
+
+  if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+function rebuildWidthOptions(){
+  const sel = document.getElementById('width');
+  sel.innerHTML = '';
+  for(const w of CFG.widths){
+    const opt = document.createElement('option');
+    opt.value = w;
+    const bits = w * CFG.elemBytes * 8;
+    opt.textContent = `${regNameForBits(bits)} (${bits})`;
+    sel.appendChild(opt);
+  }
+  sel.value = N;
+  document.getElementById('width-ctl').hidden = CFG.widths.length < 2;
+}
+
+function changeWidth(w){
+  const newN = parseInt(w);
+  if(newN === N) return;
+  const oldSrc = src.slice();
+  const oldKmask = kmask.slice();
+  const oldDstPrev = dstPrev.slice();
+  initData(newN);
+  src = oldSrc;  // source unit is unaffected by destination width
+  // keep the user's mask toggles / prior-dst values for lanes that still exist
+  for(let i=0; i<Math.min(newN, oldKmask.length); i++){
+    kmask[i] = oldKmask[i];
+    dstPrev[i] = oldDstPrev[i];
+  }
+  build();
+  syncBadges();
+  render(); drawArrows();
+}
+
+function changeKmaskMode(m){
+  if(m === kmode) return;
+  kmode = m;
+  document.getElementById('kmask-row').hidden = (kmode === 'off');
+  updateKmaskHint();
+  syncBadges();
+  render(); drawArrows();
+}
+
+function updateKmaskHint(){
+  const txt = kmode === 'zero'  ? `click to toggle 0/1 — 0 zeroes the output ${CFG.elemName}`
+            : kmode === 'merge' ? `click to toggle 0/1 — 0 keeps the prior dst ${CFG.elemName}`
+                                : 'click to toggle 0/1 — 1 = element active';
+  document.querySelector('.kmask-hint').textContent = txt;
+}
+
+function syncBadges(){
+  document.getElementById('isa-badge').textContent = isaLabel();
+  document.getElementById('width-badge').textContent = widthLabel();
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+// Cells are built once per build() and cached in `cells`. render() updates only
+// data-dependent attributes; refreshHover() updates only hover styling.
+function makeCell(idxLabel){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span>`;
+  el._val = el.lastChild;
+  return el;
+}
+
+function build(){
+  closePopup();
+  cells = { src: [], dst: [], k1: [] };
+
+  document.getElementById('src-hint').textContent = GROUP === 1
+    ? `the source ${CFG.elemName} — click to edit`
+    : `${srcBits()}-bit source unit (${GROUP} ${CFG.elemNameP}) — click a ${CFG.elemName} to edit`;
+  document.getElementById('dst-hint').textContent = GROUP === 1
+    ? `every ${CFG.elemName} = src[0]`
+    : `every ${CFG.elemName} = src[i mod ${GROUP}]`;
+
+  const srcG = document.getElementById('src-grid');
+  srcG.style.setProperty('--cols', GROUP);
+  srcG.innerHTML = '';
+  for(let g=0; g<GROUP; g++){
+    const el = makeCell(`[${g}]`);
+    el.className = 'cell src-cell';
+    el.onclick = () => openSrcPopup(g, el);
+    wireHover(el, () => hovSrc=g);
+    srcG.appendChild(el);
+    cells.src.push(el);
+  }
+
+  const dstG = document.getElementById('dst-grid');
+  dstG.style.setProperty('--cols', LANE);
+  dstG.innerHTML = '';
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`);
+    wireHover(el, () => hovDst=i);
+    dstG.appendChild(el);
+    cells.dst.push(el);
+  }
+
+  const kG = document.getElementById('kmask-grid');
+  document.getElementById('kmask-row').hidden = !(CFG.kmask && kmode !== 'off');
+  if(CFG.kmask){
+    kG.style.setProperty('--cols', LANE);
+    kG.innerHTML = '';
+    for(let i=0; i<N; i++){
+      const el = makeCell(`[${i}]`);
+      el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; hovK = i; render(); drawArrows(); updateInfo(); };
+      wireHover(el, () => hovK=i);
+      kG.appendChild(el);
+      cells.k1.push(el);
+    }
+    updateKmaskHint();
+  } else {
+    kG.innerHTML = '';  // drop stale cells/listeners from a prior mask instruction
+  }
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  for(let g=0; g<GROUP; g++){
+    const el = cells.src[g];
+    el._val.textContent = '0x' + src[g];
+    el.title = `src[${g}] = 0x${src[g]} — click to edit`;
+  }
+
+  for(let i=0; i<N; i++){
+    const dEl = cells.dst[i];
+    const s = dstStatus(i);
+    let dtxt, dcls;
+    if(s.kind === 'val')       { dtxt = '0x'+s.val;  dcls = 'dst-val'; }
+    else if(s.kind === 'zero') { dtxt = zeroStr();   dcls = 'dst-zer'; }
+    else                       { dtxt = '0x'+s.val;  dcls = 'dst-keep'; }
+    dEl.className = 'cell ' + dcls;
+    dEl._val.textContent = dtxt;
+    dEl.title = s.kind === 'val'  ? `dst[${i}] = src[${i % GROUP}] = 0x${s.val}`
+            :  s.kind === 'zero' ? `dst[${i}] = ${zeroStr()} (zeroed — k1 mask off)`
+            :                      `dst[${i}] = 0x${s.val} (kept — k1 mask off)`;
+
+    if(CFG.kmask){
+      const kEl = cells.k1[i];
+      const on = !!kmask[i];
+      kEl.className = 'cell km-cell' + (on ? '' : ' km-off');
+      kEl._val.textContent = on ? 1 : 0;
+      kEl.title = `k1[${i}] = ${on?1:0} → ${on ? 'broadcast' : (kmode==='zero' ? 'zero' : 'keep prior dst')}`;
+    }
+  }
+  refreshHover();
+}
+
+function refreshHover(){
+  for(let g=0; g<GROUP; g++){
+    const lit = hovSrc === g
+             || (hovDst >= 0 && hovDst % GROUP === g)
+             || (hovK   >= 0 && hovK   % GROUP === g);
+    cells.src[g].classList.toggle('lit', lit);
+  }
+  for(let i=0; i<N; i++){
+    const lit = hovDst === i || hovK === i || (hovSrc >= 0 && i % GROUP === hovSrc);
+    cells.dst[i].style.boxShadow = (lit && writes(i)) ? '0 0 0 2.5px #639922' : '';
+    if(CFG.kmask){
+      const active = hovK === i || hovDst === i || (hovSrc >= 0 && i % GROUP === hovSrc);
+      cells.k1[i].classList.toggle('active', active);
+    }
+  }
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to inspect the broadcast.'; }
+
+function targetsOf(g){
+  const t = [];
+  for(let i=0; i<N; i++) if(i % GROUP === g && writes(i)) t.push(i);
+  return t;
+}
+
+// Description of a masked-off dst element (zeroed by {z} or kept from prior dst).
+function maskedTail(i){
+  return kmode === 'zero'
+    ? `<strong>dst[${i}] = ${zeroStr()}</strong> (zeroed by {z})`
+    : `<strong>dst[${i}] = 0x${dstPrev[i]}</strong> (kept — prior value)`;
+}
+
+function updateInfo(){
+  const box = document.getElementById('info');
+
+  if(hovSrc >= 0){
+    const t = targetsOf(hovSrc);
+    const note = GROUP === 1 ? '' : ` <span class="hint">(unit position ${hovSrc})</span>`;
+    if(t.length === 0){
+      box.innerHTML = `<strong>src[${hovSrc}] = 0x${src[hovSrc]}</strong>${note} — every matching dst ${CFG.elemName} is masked off`;
+    } else {
+      box.innerHTML = `<strong>src[${hovSrc}] = 0x${src[hovSrc]}</strong>${note} → broadcast to dst ${CFG.elemNameP} <strong>${t.join(', ')}</strong>`;
+    }
+    return;
+  }
+
+  if(hovK >= 0){
+    const on = !!kmask[hovK];
+    const g = hovK % GROUP;
+    const path = `<strong>src[${g}] = 0x${src[g]}</strong>`;
+    if(on){
+      box.innerHTML = `<strong>k1[${hovK}] = 1</strong> — broadcast · ${path} → <strong>dst[${hovK}] = 0x${src[g]}</strong>`;
+    } else {
+      box.innerHTML = `<strong>k1[${hovK}] = 0</strong> — broadcast suppressed · ${path} → ${maskedTail(hovK)}`;
+    }
+    return;
+  }
+
+  if(hovDst >= 0){
+    const g = hovDst % GROUP;
+    if(!writes(hovDst)){
+      box.innerHTML = `<strong>k1[${hovDst}] = 0</strong> — broadcast suppressed → ${maskedTail(hovDst)}`;
+      return;
+    }
+    const idxNote = GROUP === 1 ? 'src[0]' : `src[${hovDst} mod ${GROUP} = ${g}]`;
+    box.innerHTML = `<strong>dst[${hovDst}] ← ${idxNote} = 0x${src[g]}</strong>`;
+    return;
+  }
+
+  resetInfo();
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openSrcPopup(g, el){
+  closePopup();
+  const grid = document.getElementById('src-grid');
+  const gRect = grid.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup';
+  pop.style.left = (eRect.left + eRect.width/2 - gRect.left) + 'px';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = `src[${g}]`;
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x' + src[g]; inp.placeholder = zeroStr();
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitSrc(g, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitSrc(g, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  for(const b of [0x00, 0xFF, 0xAA, 0x55]){
+    const v = quickFill(b);
+    const btn = document.createElement('button');
+    btn.textContent = '0x' + v;
+    btn.onclick = () => { commitSrc(g, v); closePopup(); };
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  grid.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function commitSrc(g, raw){
+  const v = normHex(raw);
+  if(v !== null){ src[g] = v; render(); drawArrows(); }
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+// One overlay canvas spans the whole flow area so a single source unit can fan
+// out to any destination element regardless of how the grid wraps.
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  const flow = document.getElementById('flow');
+  if(!canv || !flow) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = flow.offsetWidth, H = flow.offsetHeight;
+  canv.width = W*dpr; canv.height = H*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  // Collect [srcGroupIdx, dstIdx] pairs to draw.
+  const pairs = [];
+  if(hovDst >= 0){
+    if(writes(hovDst)) pairs.push([hovDst % GROUP, hovDst]);
+  } else if(hovK >= 0){
+    if(writes(hovK)) pairs.push([hovK % GROUP, hovK]);
+  } else if(hovSrc >= 0){
+    for(const i of targetsOf(hovSrc)) pairs.push([hovSrc, i]);
+  }
+  if(!pairs.length) return;
+
+  const cr = canv.getBoundingClientRect();
+  function topPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.top - cr.top]; }
+  function botPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.bottom - cr.top]; }
+
+  ctx.strokeStyle = '#EF9F27'; ctx.fillStyle = '#EF9F27';
+  ctx.globalAlpha = pairs.length > 8 ? 0.5 : 1;
+  ctx.lineWidth = 1.75;
+  for(const [g, i] of pairs){
+    const [x1, y1] = botPt(cells.src[g]);
+    const [x2, y2] = topPt(cells.dst[i]);
+    const my = (y1 + y2) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 4, y2 - 7);
+    ctx.lineTo(x2 + 4, y2 - 7);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const [key, cfg] of Object.entries(CONFIGS)){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = key;
+  btn.textContent = cfg.tab || cfg.title;
+  btn.addEventListener('click', () => selectInstruction(key));
+  tabBar.appendChild(btn);
+}
+window.addEventListener('hashchange', () => {
+  const name = location.hash.replace(/^#/, '');
+  if(CONFIGS[name] && (!CFG || CFG !== CONFIGS[name])) selectInstruction(name);
+});
+window.addEventListener('resize', drawArrows);
+
+const initialName = (CONFIGS[location.hash.replace(/^#/, '')] ? location.hash.slice(1) : 'vpbroadcastd');
+selectInstruction(initialName);
+</script>
+</body>
+</html>
