@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCMPEQB / PCMPEQW / PCMPEQD / PCMPEQQ — Interactive Compare-Equal Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 920px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bt { background: #B9E4E2; color: #0A3E3B; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bt { background: #0E4B47; color: #B9E4E2; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); column-gap: 3px; row-gap: 3px; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 46px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 11px; line-height: 1; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+
+  .src-cell  { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .src-cell:hover { background: #B5D4F4; }
+  .src2-cell { background: #DFF1F0; border-color: #2E8B87; color: #0A3E3B; cursor: pointer; }
+  .src2-cell:hover { background: #B9E4E2; }
+  .src-cell.lit, .src2-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .km-cell  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 32px; }
+  .km-cell:hover { background: #D8C9F4; }
+  .km-cell.km-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km-cell.km-off:hover { background: #E4E1D5; }
+  .km-cell.active { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  /* dst: all-ones (match) vs all-zeros (no match) */
+  .dst-true  { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-false { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: default; }
+  /* result bit cells of the EVEX opmask destination */
+  .bit-cell { height: 32px; }
+
+  @media (prefers-color-scheme: dark) {
+    .src-cell  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .src-cell:hover { background: #185FA5; }
+    .src2-cell { background: #0E4B47; border-color: #2E8B87; color: #B9E4E2; }
+    .src2-cell:hover { background: #14625D; }
+    .src-cell.lit, .src2-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .km-cell  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km-cell:hover { background: #4F2D94; }
+    .km-cell.km-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km-cell.km-off:hover { background: #3A3A38; }
+    .dst-true  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-false { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 34px; }
+
+  .flow { position: relative; }
+  /* behind the cells: the wires show in the row gaps and pass cleanly under the
+     opaque cell backgrounds instead of drawing over src2's values */
+  .flow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .flow .reg-grid, .flow .row-lbl { position: relative; z-index: 1; }
+
+  .kres {
+    margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--text2);
+  }
+  .kres strong { color: var(--text); font-weight: 600; }
+  .kres[hidden] { display: none; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctl[hidden] { display: none; }
+  /* keep the selectors together so they wrap as a right-aligned group */
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .popup {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 170px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+    <label class="ctl">
+      Result:
+      <select id="mode" onchange="changeMode(this.value)">
+        <option value="vec">vector (SSE/AVX)</option>
+        <option value="k">opmask k1 (AVX-512)</option>
+      </select>
+    </label>
+    <label class="ctl">
+      Width:
+      <select id="width" onchange="changeWidth(this.value)"></select>
+    </label>
+    <label class="ctl" id="kmode-ctl">
+      Mask:
+      <select id="kmode" onchange="changeKmaskMode(this.value)">
+        <option value="off">none</option>
+        <option value="k2">{k2} zero</option>
+      </select>
+    </label>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="flow" id="flow">
+    <div class="row-lbl"><span class="badge bb">src1</span><span class="hint" id="src1-hint"></span></div>
+    <div class="reg-grid" id="src1-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge bt">src2</span><span class="hint" id="src2-hint"></span></div>
+    <div class="reg-grid" id="src2-grid"></div>
+    <div class="gap"></div>
+    <div id="kmask-row" hidden>
+      <div class="row-lbl"><span class="badge bp">k2</span><span class="hint kmask-hint">click to toggle 0/1</span></div>
+      <div class="reg-grid" id="kmask-grid"></div>
+      <div style="height:10px"></div>
+    </div>
+    <div class="row-lbl"><span class="badge bg" id="dst-badge">dst</span><span class="hint" id="dst-hint"></span></div>
+    <div class="reg-grid" id="dst-grid"></div>
+    <canvas id="arrows"></canvas>
+  </div>
+  <div class="kres" id="kres" hidden></div>
+
+  <div class="info" id="info">Hover over any cell to inspect the comparison.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// PCMPEQ* compares two vectors element-wise for equality. Each destination
+// element is a full-width boolean: all-ones on a match, all-zeros otherwise —
+// exactly the shape wanted by PAND / PANDN / PBLENDVB / PMOVMSKB.
+//
+//   dst[i] = (src1[i] == src2[i]) ? ~0 : 0
+//
+// The EVEX (AVX-512) encoding of the same mnemonic writes an *opmask register*
+// instead of a vector: k1[i] is a single bit, and an optional {k2} write-mask
+// zeroes the bits it excludes. The `Result` selector switches between the two.
+//
+//   bytes    : element size
+//   isa128   : ISA level introducing the 128-bit legacy (SSE) form
+//   f512     : AVX-512 feature providing the EVEX (opmask) form
+const SIZES = [
+  { key:'b', name:'B', bytes:1, elemName:'byte',  isa128:'SSE2',   f512:'AVX-512BW' },
+  { key:'w', name:'W', bytes:2, elemName:'word',  isa128:'SSE2',   f512:'AVX-512BW' },
+  { key:'d', name:'D', bytes:4, elemName:'dword', isa128:'SSE2',   f512:'AVX-512F'  },
+  { key:'q', name:'Q', bytes:8, elemName:'qword', isa128:'SSE4.1', f512:'AVX-512F'  },
+];
+const SIZE_BY_KEY = {};
+for(const s of SIZES) SIZE_BY_KEY[s.key] = s;
+
+// Parse a deep-link hash like "pcmpeqb" / "vpcmpeqd" → { key:'b' }, or null.
+function parseHash(h){
+  const m = /^v?pcmpeq(b|w|d|q)$/.exec(h);
+  return m ? { key: m[1] } : null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let SZ;                      // current size descriptor from SIZES
+let mode = 'vec';            // 'vec' = vector destination, 'k' = opmask destination
+let N, LANE;                 // N = element count; LANE = elements per 128-bit lane
+let kmode = 'off';           // 'off' | 'k2' — EVEX write-mask (opmask dest only)
+let src1, src2, kmask;
+let hovSrc1 = -1, hovSrc2 = -1, hovDst = -1, hovK = -1;
+let cells;  // { src1:[…], src2:[…], dst:[…], k2:[…] }
+
+// ─── Instruction metadata ───────────────────────────────────────────────────
+function instrName(){ return 'pcmpeq' + SZ.key; }
+function baseTitle(){ return 'PCMPEQ' + SZ.name; }
+function instrTitle(){
+  if(mode === 'k') return 'VPCMPEQ' + SZ.name + ' → k1';
+  return bitsTotal() === 128 ? baseTitle() + ' / V' + baseTitle() : 'V' + baseTitle();
+}
+function instrRef(){
+  return 'https://www.felixcloutier.com/x86/' +
+    (SZ.key === 'q' ? 'pcmpeqq' : 'pcmpeqb:pcmpeqw:pcmpeqd');
+}
+// A k register holds 64 bits, so at N = 64 there are no upper bits left to zero.
+function upperBitsNote(){ return N < 64 ? `Bits above the ${N} compared elements are zeroed, and a` : 'A'; }
+function instrSubtitle(){
+  return mode === 'k'
+    ? `The EVEX form writes an opmask, one bit per element: <code>k1[i] = (src1[i] == src2[i])</code>. ${upperBitsNote()} <code>{k2}</code> write-mask zeroes the bits it excludes.`
+    : `Compare packed ${SZ.elemName}s for equality — every destination ${SZ.elemName} becomes a full-width boolean: <code>dst[i] = (src1[i] == src2[i]) ? ${allOnes()} : ${allZeros()}</code>. Feed the result to <code>PAND</code>/<code>PANDN</code>/<code>PBLENDVB</code>, or collapse it with <code>PMOVMSKB</code>.`;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hexW(){ return SZ.bytes * 2; }
+function allOnes(){ return '0x' + 'F'.repeat(hexW()); }
+function allZeros(){ return '0x' + '0'.repeat(hexW()); }
+function bitsTotal(){ return N * SZ.bytes * 8; }
+function regNameForBits(bits){ return bits === 128 ? 'XMM' : bits === 256 ? 'YMM' : 'ZMM'; }
+function widthsFor(){
+  // no 512-bit vector-destination compare exists — EVEX always targets an opmask
+  const ns = [16 / SZ.bytes, 32 / SZ.bytes];
+  if(mode === 'k') ns.push(64 / SZ.bytes);
+  return ns;
+}
+function normHex(raw){
+  const s = raw.trim().replace(/^0x/i, '');
+  if(!/^[0-9a-fA-F]+$/.test(s) || s.length > hexW()) return null;
+  return s.toUpperCase().padStart(hexW(), '0');
+}
+// Widen a byte into a full element by repeating it, so a value stays readable
+// at any element size (0x5A → 0x5A5A5A5A).
+function fillHex(b){ return b.toString(16).toUpperCase().padStart(2, '0').repeat(SZ.bytes); }
+
+function isaLabel(){
+  const bits = bitsTotal();
+  if(mode === 'k') return SZ.f512 + (bits === 512 ? '' : '+VL');
+  return bits === 128 ? SZ.isa128 + ' / AVX' : 'AVX2';
+}
+function widthLabel(){ const bits = bitsTotal(); return `${bits}-bit ${regNameForBits(bits)}`; }
+
+function eq(i){ return src1[i] === src2[i]; }
+function writes(i){ return !(mode === 'k' && kmode === 'k2' && !kmask[i]); }
+function resultBit(i){ return writes(i) && eq(i) ? 1 : 0; }
+
+// ─── Seed data ──────────────────────────────────────────────────────────────
+// Every third element is seeded equal so both outcomes are visible out of the
+// box; the rest differ, sometimes only in the low nibble.
+function seed1(i){ return fillHex((i * 29 + 0x11) & 0xff); }
+function seed2(i){ return (i % 3 === 0) ? seed1(i) : fillHex((i * 29 + 0x12 + (i % 5)) & 0xff); }
+
+function initData(n){
+  N = n;
+  src1  = Array.from({length:N}, (_,i) => seed1(i));
+  src2  = Array.from({length:N}, (_,i) => seed2(i));
+  kmask = Array.from({length:N}, () => 1);
+}
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function selectSize(key){
+  SZ = SIZE_BY_KEY[key] || SIZES[0];
+  LANE = 16 / SZ.bytes;               // elements per 128-bit lane = columns
+  N = widthsFor()[0];                 // default to 128-bit
+  hovSrc1 = hovSrc2 = hovDst = hovK = -1;
+  closePopup();
+  initData(N);
+
+  rebuildWidthOptions();
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+// Switch vector ↔ opmask destination. Source data is kept so the same inputs
+// can be compared in both forms; the width is clamped when 512-bit disappears.
+function changeMode(m){
+  if(m === mode) return;
+  mode = m;
+  if(mode === 'vec' && bitsTotal() > 256){
+    resizeTo(32 / SZ.bytes);
+  }
+  hovSrc1 = hovSrc2 = hovDst = hovK = -1;
+  closePopup();
+  rebuildWidthOptions();
+  document.getElementById('kmode-ctl').hidden = (mode !== 'k');
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+function rebuildWidthOptions(){
+  const sel = document.getElementById('width');
+  sel.innerHTML = '';
+  for(const w of widthsFor()){
+    const opt = document.createElement('option');
+    opt.value = w;
+    const bits = w * SZ.bytes * 8;
+    opt.textContent = `${regNameForBits(bits)} (${bits})`;
+    sel.appendChild(opt);
+  }
+  sel.value = N;
+}
+
+// Show `newN` elements. The operand arrays only ever grow — everything below N
+// is left alone, so narrowing the width (or bouncing through the vector form,
+// which has no 512-bit encoding) and coming back keeps the user's edits.
+function resizeTo(newN){
+  for(let i = src1.length; i < newN; i++){
+    src1.push(seed1(i)); src2.push(seed2(i)); kmask.push(1);
+  }
+  N = newN;
+}
+
+function changeWidth(w){
+  const newN = parseInt(w);
+  if(newN === N) return;
+  hovSrc1 = hovSrc2 = hovDst = hovK = -1;  // a stale index could exceed the shrunk element count
+  closePopup();
+  resizeTo(newN);
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+function changeKmaskMode(m){
+  if(m === kmode) return;
+  kmode = m;
+  document.getElementById('kmask-row').hidden = (kmode === 'off');
+  updateKmaskHint();
+  render(); drawArrows();
+}
+
+function updateKmaskHint(){
+  document.querySelector('.kmask-hint').textContent =
+    'click to toggle 0/1 — 0 forces the result bit to 0 regardless of the comparison';
+}
+
+function syncBadges(){
+  document.getElementById('isa-badge').textContent = isaLabel();
+  document.getElementById('width-badge').textContent = widthLabel();
+}
+
+// Refresh everything that depends on (SZ, mode, N) but not on cell geometry.
+function updatePresentation(){
+  document.title = instrTitle().replace(' → k1', '') + ' — Interactive Compare-Equal Visualiser';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === SZ.key));
+  document.getElementById('mode').value = mode;
+  document.getElementById('kmode-ctl').hidden = (mode !== 'k');
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('isa-ref').href = instrRef();
+  document.getElementById('dst-badge').textContent = mode === 'k' ? 'k1' : 'dst';
+  document.getElementById('dst-hint').innerHTML = mode === 'k'
+    ? `k1[i] = (src1[i] == src2[i]) — one bit per ${SZ.elemName}`
+    : `dst[i] = (src1[i] == src2[i]) ? ${allOnes()} : ${allZeros()}`;
+  syncBadges();
+  // The hash names the size tab only — both spellings (#pcmpeqd and #vpcmpeqd)
+  // select it, so leave whichever one the user arrived with in the address bar.
+  const cur = parseHash(location.hash.replace(/^#/, ''));
+  if(!cur || cur.key !== SZ.key) history.replaceState(null, '', '#' + instrName());
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+// Cells are built once per build() and cached in `cells`. render() updates only
+// data-dependent attributes; refreshHover() updates only hover styling.
+function makeCell(idxLabel){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span>`;
+  el._val = el.lastChild;
+  return el;
+}
+
+function buildSrcRow(gridId, arrName, cls){
+  const g = document.getElementById(gridId);
+  g.style.setProperty('--cols', LANE);
+  g.innerHTML = '';
+  const out = [];
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`);
+    el.className = 'cell ' + cls;
+    el.onclick = () => openSrcPopup(arrName, i, el, g);
+    wireHover(el, () => { if(arrName === 'src1') hovSrc1 = i; else hovSrc2 = i; });
+    g.appendChild(el);
+    out.push(el);
+  }
+  return out;
+}
+
+function build(){
+  closePopup();
+  cells = { src1: [], src2: [], dst: [], k2: [] };
+
+  const hint = `${bitsTotal()}-bit source (${N} ${SZ.elemName}s) — click a ${SZ.elemName} to edit`;
+  document.getElementById('src1-hint').textContent = hint;
+  document.getElementById('src2-hint').textContent = hint;
+
+  cells.src1 = buildSrcRow('src1-grid', 'src1', 'src-cell');
+  cells.src2 = buildSrcRow('src2-grid', 'src2', 'src2-cell');
+
+  const dstG = document.getElementById('dst-grid');
+  dstG.style.setProperty('--cols', LANE);
+  dstG.innerHTML = '';
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`);
+    wireHover(el, () => hovDst = i);
+    dstG.appendChild(el);
+    cells.dst.push(el);
+  }
+
+  const kG = document.getElementById('kmask-grid');
+  document.getElementById('kmask-row').hidden = (mode !== 'k' || kmode === 'off');
+  kG.style.setProperty('--cols', LANE);
+  kG.innerHTML = '';
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`);
+    el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; hovK = i; render(); drawArrows(); updateInfo(); };
+    wireHover(el, () => hovK = i);
+    kG.appendChild(el);
+    cells.k2.push(el);
+  }
+  updateKmaskHint();
+}
+
+// Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
+function wireHover(el, setHov){
+  el.addEventListener('mouseenter', () => { hovSrc1=hovSrc2=hovDst=hovK=-1; setHov(); refreshHover(); drawArrows(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hovSrc1=hovSrc2=hovDst=hovK=-1; refreshHover(); drawArrows(); resetInfo(); });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  for(let i=0; i<N; i++){
+    const a = cells.src1[i], b = cells.src2[i];
+    a._val.textContent = '0x' + src1[i];
+    b._val.textContent = '0x' + src2[i];
+    a.title = `src1[${i}] = 0x${src1[i]} — click to edit`;
+    b.title = `src2[${i}] = 0x${src2[i]} — click to edit`;
+  }
+
+  for(let i=0; i<N; i++){
+    const dEl = cells.dst[i];
+    const on = resultBit(i);
+    dEl.className = 'cell ' + (on ? 'dst-true' : 'dst-false') + (mode === 'k' ? ' bit-cell' : '');
+    if(mode === 'k'){
+      dEl._val.textContent = on ? '1' : '0';
+      dEl.title = !writes(i)
+        ? `k1[${i}] = 0 (zeroed — k2 mask off)`
+        : `k1[${i}] = ${on} — src1[${i}] = 0x${src1[i]} ${on ? '==' : '!='} src2[${i}] = 0x${src2[i]}`;
+    } else {
+      dEl._val.textContent = on ? allOnes() : allZeros();
+      dEl.title = `dst[${i}] = ${on ? allOnes() : allZeros()} — src1[${i}] = 0x${src1[i]} ${on ? '==' : '!='} src2[${i}] = 0x${src2[i]}`;
+    }
+
+    const kEl = cells.k2[i];
+    const k = !!kmask[i];
+    kEl.className = 'cell km-cell' + (k ? '' : ' km-off');
+    kEl._val.textContent = k ? 1 : 0;
+    kEl.title = `k2[${i}] = ${k?1:0} → ${k ? 'compare' : 'result bit forced to 0'}`;
+  }
+
+  renderKres();
+  refreshHover();
+}
+
+// The opmask destination as a single value — the way it is actually consumed.
+function renderKres(){
+  const box = document.getElementById('kres');
+  box.hidden = (mode !== 'k');
+  if(mode !== 'k') return;
+  let v = 0n;
+  for(let i=0; i<N; i++) if(resultBit(i)) v |= (1n << BigInt(i));
+  const hexDigits = Math.max(4, N / 4);
+  const bin = v.toString(2).padStart(N, '0');
+  box.innerHTML = `<strong>k1 = 0x${v.toString(16).toUpperCase().padStart(hexDigits, '0')}</strong>` +
+                  ` &middot; 0b${bin} <span class="hint">(bit ${N-1} … bit 0${N < 64 ? `; bits ${N}+ are zeroed` : ''})</span>`;
+}
+
+function refreshHover(){
+  const idx = hovIdx();
+  for(let i=0; i<N; i++){
+    const lit = idx === i;
+    cells.src1[i].classList.toggle('lit', lit);
+    cells.src2[i].classList.toggle('lit', lit);
+    cells.dst[i].style.boxShadow = (lit && writes(i)) ? '0 0 0 2.5px #639922' : '';
+    cells.k2[i].classList.toggle('active', lit);
+  }
+}
+
+// Everything is a 1:1 lane-wise operation, so a single index is highlighted.
+function hovIdx(){
+  if(hovDst >= 0) return hovDst;
+  if(hovK >= 0) return hovK;
+  if(hovSrc1 >= 0) return hovSrc1;
+  return hovSrc2;
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to inspect the comparison.'; }
+
+function dstText(i){
+  if(mode === 'k') return `<strong>k1[${i}] = ${resultBit(i)}</strong>`;
+  return `<strong>dst[${i}] = ${eq(i) ? allOnes() : allZeros()}</strong>`;
+}
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  const i = hovIdx();
+  if(i < 0){ resetInfo(); return; }
+
+  const cmp = `<strong>src1[${i}] = 0x${src1[i]}</strong> ${eq(i) ? '==' : '&ne;'} <strong>src2[${i}] = 0x${src2[i]}</strong>`;
+
+  if(!writes(i)){
+    box.innerHTML = `${cmp} — but <strong>k2[${i}] = 0</strong>, so the comparison is discarded: <strong>k1[${i}] = 0</strong>`;
+    return;
+  }
+
+  const verdict = eq(i)
+    ? `equal &rarr; ${dstText(i)}` + (mode === 'vec' ? ` <span class="hint">(all bits set)</span>` : '')
+    : `not equal &rarr; ${dstText(i)}` + (mode === 'vec' ? ` <span class="hint">(all bits clear)</span>` : '');
+  box.innerHTML = `${cmp} &rarr; ${verdict}`;
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openSrcPopup(arrName, i, el, grid){
+  closePopup();
+  const arr = arrName === 'src1' ? src1 : src2;
+  const other = arrName === 'src1' ? src2 : src1;
+  const otherName = arrName === 'src1' ? 'src2' : 'src1';
+  const gRect = grid.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup';
+  pop.style.left = (eRect.left + eRect.width/2 - gRect.left) + 'px';
+  // Sit just above the clicked cell's row — a source grid can wrap to several
+  // rows, so the CSS `bottom:100%` (above the whole grid) would detach the popup.
+  pop.style.bottom = (gRect.bottom - eRect.top + 6) + 'px';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = `${arrName}[${i}]`;
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x' + arr[i]; inp.placeholder = '0x' + '0'.repeat(hexW());
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitSrc(arrName, i, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitSrc(arrName, i, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  // Quick values, incl. "match the other operand" — the fastest way to flip a
+  // lane between the two possible outcomes.
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  const quick = [
+    [`= ${otherName}[${i}]`, other[i]],
+    ['0x' + fillHex(0x00), fillHex(0x00)],
+    ['0x' + fillHex(0xFF), fillHex(0xFF)],
+    ['0x' + fillHex(0x80), fillHex(0x80)],
+  ];
+  for(const [label, v] of quick){
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    btn.onclick = () => { commitSrc(arrName, i, v); closePopup(); };
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  grid.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function commitSrc(arrName, i, raw){
+  const v = normHex(raw);
+  if(v === null) return;
+  (arrName === 'src1' ? src1 : src2)[i] = v;
+  render(); drawArrows();
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+// Both operands map 1:1 onto the destination element in the same column, so the
+// hovered index gets two near-vertical wires converging on dst[i].
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  const flow = document.getElementById('flow');
+  if(!canv || !flow) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = flow.offsetWidth, H = flow.offsetHeight;
+  canv.width = W*dpr; canv.height = H*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const idx = hovIdx();
+  if(idx < 0 || !writes(idx)) return;
+
+  const cr = canv.getBoundingClientRect();
+  function topPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.top - cr.top]; }
+  function botPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.bottom - cr.top]; }
+
+  const [dx, dy] = topPt(cells.dst[idx]);
+  // both wires land on the same cell in the same column, so nudge them apart
+  // horizontally to keep the two operands distinguishable
+  const spread = Math.min(5, cells.dst[idx].getBoundingClientRect().width / 6);
+  for(const [cell, color, off] of [[cells.src1[idx], '#378ADD', -spread], [cells.src2[idx], '#2E8B87', spread]]){
+    const [x1, y1] = botPt(cell);
+    const x2 = dx + off, y2 = dy;
+    const my = (y1 + y2) / 2;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.75;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 4, y2 - 7);
+    ctx.lineTo(x2 + 4, y2 - 7);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const s of SIZES){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = s.key;
+  btn.textContent = 'PCMPEQ' + s.name;
+  btn.title = `PCMPEQ${s.name} / VPCMPEQ${s.name} — packed ${s.elemName} equality (${s.isa128})`;
+  btn.addEventListener('click', () => selectSize(s.key));
+  tabBar.appendChild(btn);
+}
+window.addEventListener('hashchange', () => {
+  const p = parseHash(location.hash.replace(/^#/, ''));
+  if(p && p.key !== SZ.key) selectSize(p.key);
+});
+window.addEventListener('resize', drawArrows);
+
+const initial = parseHash(location.hash.replace(/^#/, ''));
+selectSize(initial ? initial.key : 'b');
+</script>
+</body>
+</html>
