@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VPCMPB / VPCMPUB family — Interactive Predicate Compare Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 920px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bt { background: #B9E4E2; color: #0A3E3B; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bt { background: #0E4B47; color: #B9E4E2; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); column-gap: 3px; row-gap: 3px; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 50px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 11px; line-height: 1; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+  /* the same bits read as a number — flips with the signed/unsigned selector */
+  .cell-sub { font-size: 9px; line-height: 1; margin-top: 2px; opacity: .65; font-weight: 400;
+              overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+
+  .src-cell  { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .src-cell:hover { background: #B5D4F4; }
+  .src2-cell { background: #DFF1F0; border-color: #2E8B87; color: #0A3E3B; cursor: pointer; }
+  .src2-cell:hover { background: #B9E4E2; }
+  .src-cell.lit, .src2-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .km-cell  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 32px; }
+  .km-cell:hover { background: #D8C9F4; }
+  .km-cell.km-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km-cell.km-off:hover { background: #E4E1D5; }
+  .km-cell.active { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  /* result bits of the opmask destination */
+  .dst-true  { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; height: 32px; }
+  .dst-false { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: default; height: 32px; }
+
+  @media (prefers-color-scheme: dark) {
+    .src-cell  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .src-cell:hover { background: #185FA5; }
+    .src2-cell { background: #0E4B47; border-color: #2E8B87; color: #B9E4E2; }
+    .src2-cell:hover { background: #14625D; }
+    .src-cell.lit, .src2-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .km-cell  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km-cell:hover { background: #4F2D94; }
+    .km-cell.km-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km-cell.km-off:hover { background: #3A3A38; }
+    .dst-true  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-false { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 34px; }
+
+  .flow { position: relative; }
+  /* behind the cells: the wires show in the row gaps and pass cleanly under the
+     opaque cell backgrounds instead of drawing over src2's values */
+  .flow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .flow .reg-grid, .flow .row-lbl { position: relative; z-index: 1; }
+
+  .kres { margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--text2); }
+  .kres strong { color: var(--text); font-weight: 600; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctl[hidden] { display: none; }
+  /* keep the four selectors together so they wrap as a right-aligned group */
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .popup {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 170px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge ba" id="alias-badge"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+    <label class="ctl">
+      Compare:
+      <select id="sign" onchange="changeSign(this.value)">
+        <option value="s">signed</option>
+        <option value="u">unsigned</option>
+      </select>
+    </label>
+    <label class="ctl">
+      imm8:
+      <select id="pred" onchange="changePred(this.value)"></select>
+    </label>
+    <label class="ctl">
+      Width:
+      <select id="width" onchange="changeWidth(this.value)"></select>
+    </label>
+    <label class="ctl">
+      Mask:
+      <select id="kmode" onchange="changeKmaskMode(this.value)">
+        <option value="off">none</option>
+        <option value="k2">{k2} zero</option>
+      </select>
+    </label>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="flow" id="flow">
+    <div class="row-lbl"><span class="badge bb">src1</span><span class="hint" id="src1-hint"></span></div>
+    <div class="reg-grid" id="src1-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge bt">src2</span><span class="hint" id="src2-hint"></span></div>
+    <div class="reg-grid" id="src2-grid"></div>
+    <div class="gap"></div>
+    <div id="kmask-row" hidden>
+      <div class="row-lbl"><span class="badge bp">k2</span><span class="hint kmask-hint">click to toggle 0/1</span></div>
+      <div class="reg-grid" id="kmask-grid"></div>
+      <div style="height:10px"></div>
+    </div>
+    <div class="row-lbl"><span class="badge bg">k1</span><span class="hint" id="dst-hint"></span></div>
+    <div class="reg-grid" id="dst-grid"></div>
+    <canvas id="arrows"></canvas>
+  </div>
+  <div class="kres" id="kres"></div>
+
+  <div class="info" id="info">Hover over any cell to inspect the comparison.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// VPCMP{B,W,D,Q} / VPCMPU{B,W,D,Q} compare two vectors element-wise under a
+// predicate picked by imm8[2:0], and write one result *bit* per element into an
+// opmask register:
+//
+//   k1[i] = src1[i] <pred> src2[i]
+//
+// The plain form treats elements as signed two's-complement, the U form as
+// unsigned — same bits, different ordering. An optional {k2} write-mask zeroes
+// the result bits it excludes, and bits above the element count are zeroed.
+//
+//   bytes : element size
+//   f512  : AVX-512 feature providing the instruction
+const SIZES = [
+  { key:'b', name:'B', bytes:1, elemName:'byte',  f512:'AVX-512BW' },
+  { key:'w', name:'W', bytes:2, elemName:'word',  f512:'AVX-512BW' },
+  { key:'d', name:'D', bytes:4, elemName:'dword', f512:'AVX-512F'  },
+  { key:'q', name:'Q', bytes:8, elemName:'qword', f512:'AVX-512F'  },
+];
+const SIZE_BY_KEY = {};
+for(const s of SIZES) SIZE_BY_KEY[s.key] = s;
+
+// imm8[2:0] selects the predicate. Six of the eight have a pseudo-op mnemonic
+// (VPCMPEQB, VPCMPLTUW, …); FALSE and TRUE do not — they are constants.
+const PREDS = [
+  { name:'EQ',    sym:'==', alias:'EQ',  fn:(a,b) => a === b, desc:'equal' },
+  { name:'LT',    sym:'<',  alias:'LT',  fn:(a,b) => a <   b, desc:'less than' },
+  { name:'LE',    sym:'<=', alias:'LE',  fn:(a,b) => a <=  b, desc:'less than or equal' },
+  { name:'FALSE', sym:'',   alias:null,  fn:() => false,      desc:'always false' },
+  { name:'NEQ',   sym:'!=', alias:'NEQ', fn:(a,b) => a !== b, desc:'not equal' },
+  { name:'NLT',   sym:'>=', alias:'NLT', fn:(a,b) => a >=  b, desc:'not less than' },
+  { name:'NLE',   sym:'>',  alias:'NLE', fn:(a,b) => a >   b, desc:'not less than or equal' },
+  { name:'TRUE',  sym:'',   alias:null,  fn:() => true,       desc:'always true' },
+];
+
+// Parse a deep-link hash like "vpcmpub" / "vpcmpd" → { sign:'u', key:'b' }.
+function parseHash(h){
+  const m = /^vpcmp(u?)(b|w|d|q)$/.exec(h);
+  return m ? { sign: m[1] === 'u' ? 'u' : 's', key: m[2] } : null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let SZ;                      // current size descriptor from SIZES
+let sign = 's';              // 's' = signed (VPCMPB), 'u' = unsigned (VPCMPUB)
+let imm = 1;                 // imm8[2:0] — index into PREDS
+let N, LANE;                 // N = element count; LANE = elements per 128-bit lane
+let kmode = 'off';           // 'off' | 'k2' — EVEX write-mask
+let src1, src2, kmask;
+let hovSrc1 = -1, hovSrc2 = -1, hovDst = -1, hovK = -1;
+let cells;  // { src1:[…], src2:[…], dst:[…], k2:[…] }
+
+// ─── Instruction metadata ───────────────────────────────────────────────────
+function unsigned(){ return sign === 'u'; }
+function instrName(){ return 'vpcmp' + (unsigned() ? 'u' : '') + SZ.key; }
+function instrTitle(){ return instrName().toUpperCase(); }
+function pred(){ return PREDS[imm]; }
+// Pseudo-op form, e.g. imm8=1 on VPCMPUB is spelled VPCMPLTUB.
+function aliasName(){
+  const p = pred();
+  return p.alias ? 'VPCMP' + p.alias + (unsigned() ? 'U' : '') + SZ.name : null;
+}
+function instrRef(){
+  const u = 'vpcmp' + SZ.key + ':vpcmpu' + SZ.key;
+  return 'https://www.felixcloutier.com/x86/' + u;
+}
+function instrSubtitle(){
+  const p = pred();
+  const how = unsigned() ? 'unsigned' : 'signed (two\'s complement)';
+  if(!p.sym){
+    return `<code>imm8 = ${imm}</code> selects the constant predicate <strong>${p.name}</strong>: every result bit is <code>${p.name === 'TRUE' ? 1 : 0}</code>, whatever the operands hold. Elements are otherwise compared as ${how} ${SZ.elemName}s.`;
+  }
+  return `Compare packed ${SZ.elemName}s as ${how} values under predicate <strong>${p.name}</strong> (<code>imm8 = ${imm}</code>) and write one bit per element into the opmask: <code>k1[i] = (src1[i] ${p.sym} src2[i])</code>.`;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hexW(){ return SZ.bytes * 2; }
+function elemBits(){ return SZ.bytes * 8; }
+function bitsTotal(){ return N * SZ.bytes * 8; }
+function regNameForBits(bits){ return bits === 128 ? 'XMM' : bits === 256 ? 'YMM' : 'ZMM'; }
+function widthsFor(){ return [16 / SZ.bytes, 32 / SZ.bytes, 64 / SZ.bytes]; }
+function normHex(raw){
+  const s = raw.trim().replace(/^0x/i, '');
+  if(!/^[0-9a-fA-F]+$/.test(s) || s.length > hexW()) return null;
+  return s.toUpperCase().padStart(hexW(), '0');
+}
+function fillHex(b){ return b.toString(16).toUpperCase().padStart(2, '0').repeat(SZ.bytes); }
+
+// Interpret an element's bits as a number under the current signedness.
+function valOf(hex){
+  const v = BigInt('0x' + hex);
+  if(unsigned()) return v;
+  const half = 1n << BigInt(elemBits() - 1);
+  return v >= half ? v - (half << 1n) : v;
+}
+
+function isaLabel(){ return SZ.f512 + (bitsTotal() === 512 ? '' : '+VL'); }
+function widthLabel(){ const bits = bitsTotal(); return `${bits}-bit ${regNameForBits(bits)}`; }
+
+function cmp(i){ return pred().fn(valOf(src1[i]), valOf(src2[i])); }
+function writes(i){ return !(kmode === 'k2' && !kmask[i]); }
+function resultBit(i){ return writes(i) && cmp(i) ? 1 : 0; }
+
+// ─── Seed data ──────────────────────────────────────────────────────────────
+// Byte pairs chosen so signed and unsigned comparisons disagree on several
+// lanes (0x80/0x7F, 0xFF/0x01, …) and agree — equal — on others.
+const SEED1 = [0x10, 0x80, 0x7F, 0xFF, 0x00, 0x41, 0xC8, 0x05];
+const SEED2 = [0x10, 0x7F, 0x80, 0x01, 0xFF, 0x40, 0xC8, 0x90];
+// Sign-extend a seed byte to the element width, keeping signed values small and
+// readable while the unsigned reading of the same bits stays large.
+function extHex(b){
+  const pad = hexW() - 2;
+  return ((b & 0x80) ? 'F' : '0').repeat(pad) + b.toString(16).toUpperCase().padStart(2, '0');
+}
+
+function initData(n){
+  N = n;
+  src1  = Array.from({length:N}, (_,i) => extHex(SEED1[i % SEED1.length]));
+  src2  = Array.from({length:N}, (_,i) => extHex(SEED2[i % SEED2.length]));
+  kmask = Array.from({length:N}, () => 1);
+}
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function selectSize(key){
+  SZ = SIZE_BY_KEY[key] || SIZES[0];
+  LANE = 16 / SZ.bytes;               // elements per 128-bit lane = columns
+  N = widthsFor()[2];                 // default to the widest (512-bit) form
+  kmode = 'off';
+  hovSrc1 = hovSrc2 = hovDst = hovK = -1;
+  closePopup();
+  initData(N);
+
+  rebuildWidthOptions();
+  document.getElementById('kmode').value = 'off';
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+// Flip signed ↔ unsigned in place — the bits are untouched, only their reading
+// (and therefore the result) changes.
+function changeSign(v){
+  if(v === sign) return;
+  sign = v;
+  closePopup();
+  updatePresentation();
+  render(); drawArrows(); updateInfo();
+}
+
+function changePred(v){
+  const n = parseInt(v);
+  if(n === imm) return;
+  imm = n;
+  updatePresentation();
+  render(); drawArrows(); updateInfo();
+}
+
+function rebuildPredOptions(){
+  const sel = document.getElementById('pred');
+  sel.innerHTML = '';
+  PREDS.forEach((p, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `${i} · ${p.name}${p.sym ? ' (' + p.sym + ')' : ''}`;
+    sel.appendChild(opt);
+  });
+  sel.value = imm;
+}
+
+function rebuildWidthOptions(){
+  const sel = document.getElementById('width');
+  sel.innerHTML = '';
+  for(const w of widthsFor()){
+    const opt = document.createElement('option');
+    opt.value = w;
+    const bits = w * SZ.bytes * 8;
+    opt.textContent = `${regNameForBits(bits)} (${bits})`;
+    sel.appendChild(opt);
+  }
+  sel.value = N;
+}
+
+function changeWidth(w){
+  const newN = parseInt(w);
+  if(newN === N) return;
+  hovSrc1 = hovSrc2 = hovDst = hovK = -1;  // a stale index could exceed the shrunk element count
+  closePopup();
+  // the operand arrays only ever grow, so narrowing the width and widening it
+  // again keeps the user's edited operands and mask toggles
+  for(let i = src1.length; i < newN; i++){
+    src1.push(extHex(SEED1[i % SEED1.length]));
+    src2.push(extHex(SEED2[i % SEED2.length]));
+    kmask.push(1);
+  }
+  N = newN;
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+function changeKmaskMode(m){
+  if(m === kmode) return;
+  kmode = m;
+  document.getElementById('kmask-row').hidden = (kmode === 'off');
+  render(); drawArrows();
+}
+
+function syncBadges(){
+  const alias = aliasName();
+  const ab = document.getElementById('alias-badge');
+  ab.textContent = alias ? '= ' + alias : 'no pseudo-op';
+  ab.title = alias
+    ? `${alias} is the pseudo-op mnemonic for ${instrTitle()} with imm8 = ${imm}`
+    : `imm8 = ${imm} (${pred().name}) has no pseudo-op mnemonic`;
+  document.getElementById('isa-badge').textContent = isaLabel();
+  document.getElementById('width-badge').textContent = widthLabel();
+}
+
+// Refresh everything that depends on (SZ, sign, imm, N) but not on cell geometry.
+function updatePresentation(){
+  const p = pred();
+  document.title = instrTitle() + ' — Interactive Predicate Compare Visualiser';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === SZ.key));
+  document.getElementById('sign').value = sign;
+  document.getElementById('pred').value = imm;
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('isa-ref').href = instrRef();
+  // a k register is 64 bits wide, so at N = 64 there are no upper bits to zero
+  const zeroed = N < 64 ? ` — bits ${N}+ are zeroed` : '';
+  document.getElementById('dst-hint').innerHTML = p.sym
+    ? `k1[i] = (src1[i] ${esc(p.sym)} src2[i]) as ${unsigned() ? 'unsigned' : 'signed'}${zeroed}`
+    : `k1[i] = ${p.name === 'TRUE' ? 1 : 0} for every element (${p.name})${zeroed}`;
+  const shint = `${bitsTotal()}-bit source (${N} ${SZ.elemName}s) — click a ${SZ.elemName} to edit`;
+  document.getElementById('src1-hint').textContent = shint;
+  document.getElementById('src2-hint').textContent = shint;
+  syncBadges();
+  const name = instrName();
+  if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+// Cells are built once per build() and cached in `cells`. render() updates only
+// data-dependent attributes; refreshHover() updates only hover styling.
+function makeCell(idxLabel, withSub){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span>` +
+                 (withSub ? '<span class="cell-sub"></span>' : '');
+  el._val = el.querySelector('.cell-val');
+  el._sub = el.querySelector('.cell-sub');
+  return el;
+}
+
+function buildSrcRow(gridId, arrName, cls){
+  const g = document.getElementById(gridId);
+  g.style.setProperty('--cols', LANE);
+  g.innerHTML = '';
+  const out = [];
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`, true);
+    el.className = 'cell ' + cls;
+    el.onclick = () => openSrcPopup(arrName, i, el, g);
+    wireHover(el, () => { if(arrName === 'src1') hovSrc1 = i; else hovSrc2 = i; });
+    g.appendChild(el);
+    out.push(el);
+  }
+  return out;
+}
+
+function build(){
+  closePopup();
+  cells = { src1: [], src2: [], dst: [], k2: [] };
+
+  cells.src1 = buildSrcRow('src1-grid', 'src1', 'src-cell');
+  cells.src2 = buildSrcRow('src2-grid', 'src2', 'src2-cell');
+
+  const dstG = document.getElementById('dst-grid');
+  dstG.style.setProperty('--cols', LANE);
+  dstG.innerHTML = '';
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`, false);
+    wireHover(el, () => hovDst = i);
+    dstG.appendChild(el);
+    cells.dst.push(el);
+  }
+
+  const kG = document.getElementById('kmask-grid');
+  document.getElementById('kmask-row').hidden = (kmode === 'off');
+  kG.style.setProperty('--cols', LANE);
+  kG.innerHTML = '';
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`, false);
+    el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; hovK = i; render(); drawArrows(); updateInfo(); };
+    wireHover(el, () => hovK = i);
+    kG.appendChild(el);
+    cells.k2.push(el);
+  }
+  document.querySelector('.kmask-hint').textContent =
+    'click to toggle 0/1 — 0 forces the result bit to 0 regardless of the comparison';
+}
+
+// Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
+function wireHover(el, setHov){
+  el.addEventListener('mouseenter', () => { hovSrc1=hovSrc2=hovDst=hovK=-1; setHov(); refreshHover(); drawArrows(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hovSrc1=hovSrc2=hovDst=hovK=-1; refreshHover(); drawArrows(); resetInfo(); });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  for(let i=0; i<N; i++){
+    for(const [arr, name, el] of [[src1, 'src1', cells.src1[i]], [src2, 'src2', cells.src2[i]]]){
+      el._val.textContent = '0x' + arr[i];
+      el._sub.textContent = valOf(arr[i]).toString();
+      el.title = `${name}[${i}] = 0x${arr[i]} = ${valOf(arr[i])} (${unsigned() ? 'unsigned' : 'signed'}) — click to edit`;
+    }
+  }
+
+  for(let i=0; i<N; i++){
+    const dEl = cells.dst[i];
+    const on = resultBit(i);
+    dEl.className = 'cell ' + (on ? 'dst-true' : 'dst-false');
+    dEl._val.textContent = on ? '1' : '0';
+    dEl.title = !writes(i)
+      ? `k1[${i}] = 0 (zeroed — k2 mask off)`
+      : `k1[${i}] = ${on} — ${valOf(src1[i])} ${pred().sym || pred().name} ${valOf(src2[i])}`;
+
+    const kEl = cells.k2[i];
+    const k = !!kmask[i];
+    kEl.className = 'cell km-cell' + (k ? '' : ' km-off');
+    kEl._val.textContent = k ? 1 : 0;
+    kEl.title = `k2[${i}] = ${k?1:0} → ${k ? 'compare' : 'result bit forced to 0'}`;
+  }
+
+  renderKres();
+  refreshHover();
+}
+
+// The opmask destination as a single value — the way it is actually consumed.
+function renderKres(){
+  let v = 0n;
+  for(let i=0; i<N; i++) if(resultBit(i)) v |= (1n << BigInt(i));
+  const hexDigits = Math.max(4, N / 4);
+  document.getElementById('kres').innerHTML =
+    `<strong>k1 = 0x${v.toString(16).toUpperCase().padStart(hexDigits, '0')}</strong>` +
+    ` &middot; 0b${v.toString(2).padStart(N, '0')} <span class="hint">(bit ${N-1} … bit 0)</span>`;
+}
+
+function refreshHover(){
+  const idx = hovIdx();
+  for(let i=0; i<N; i++){
+    const lit = idx === i;
+    cells.src1[i].classList.toggle('lit', lit);
+    cells.src2[i].classList.toggle('lit', lit);
+    cells.dst[i].style.boxShadow = (lit && writes(i)) ? '0 0 0 2.5px #639922' : '';
+    cells.k2[i].classList.toggle('active', lit);
+  }
+}
+
+// Everything is a 1:1 lane-wise operation, so a single index is highlighted.
+function hovIdx(){
+  if(hovDst >= 0) return hovDst;
+  if(hovK >= 0) return hovK;
+  if(hovSrc1 >= 0) return hovSrc1;
+  return hovSrc2;
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to inspect the comparison.'; }
+
+function esc(sym){
+  return sym === '<' ? '&lt;' : sym === '<=' ? '&le;' : sym === '>=' ? '&ge;' : sym === '>' ? '&gt;' : sym;
+}
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  const i = hovIdx();
+  if(i < 0){ resetInfo(); return; }
+
+  const p = pred();
+  const a = valOf(src1[i]), b = valOf(src2[i]);
+  const how = unsigned() ? 'unsigned' : 'signed';
+  const operands = `<strong>src1[${i}] = 0x${src1[i]}</strong> (${a} ${how}) · <strong>src2[${i}] = 0x${src2[i]}</strong> (${b} ${how})`;
+
+  if(!p.sym){
+    const bit = p.name === 'TRUE' ? 1 : 0;
+    box.innerHTML = writes(i)
+      ? `${operands} — predicate <strong>${p.name}</strong> (imm8 = ${imm}) ignores the operands &rarr; <strong>k1[${i}] = ${bit}</strong>`
+      : `${operands} — <strong>k2[${i}] = 0</strong> &rarr; <strong>k1[${i}] = 0</strong>`;
+    return;
+  }
+
+  if(!writes(i)){
+    box.innerHTML = `${operands} — but <strong>k2[${i}] = 0</strong>, so the result is discarded: <strong>k1[${i}] = 0</strong>`;
+    return;
+  }
+
+  box.innerHTML = `${operands} &rarr; <code>${a} ${esc(p.sym)} ${b}</code> is <strong>${cmp(i)}</strong> ` +
+                  `&rarr; <strong>k1[${i}] = ${resultBit(i)}</strong>`;
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openSrcPopup(arrName, i, el, grid){
+  closePopup();
+  const arr = arrName === 'src1' ? src1 : src2;
+  const other = arrName === 'src1' ? src2 : src1;
+  const otherName = arrName === 'src1' ? 'src2' : 'src1';
+  const gRect = grid.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup';
+  pop.style.left = (eRect.left + eRect.width/2 - gRect.left) + 'px';
+  // Sit just above the clicked cell's row — a source grid can wrap to several
+  // rows, so the CSS `bottom:100%` (above the whole grid) would detach the popup.
+  pop.style.bottom = (gRect.bottom - eRect.top + 6) + 'px';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = `${arrName}[${i}] — hex, or a decimal like -1`;
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x' + arr[i]; inp.placeholder = '0x' + '0'.repeat(hexW());
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitSrc(arrName, i, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitSrc(arrName, i, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  // Quick values: the boundary cases where signed and unsigned disagree, plus
+  // "match the other operand" for the equality predicates.
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  const quick = [
+    [`= ${otherName}[${i}]`, other[i]],
+    ['0', '0'.repeat(hexW())],
+    ['-1 / max', 'F'.repeat(hexW())],
+    ['sign bit', '8' + '0'.repeat(hexW() - 1)],
+  ];
+  for(const [label, v] of quick){
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    btn.title = '0x' + v;
+    btn.onclick = () => { commitSrc(arrName, i, '0x' + v); closePopup(); };
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  grid.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+// Accept either hex (0x1F / 1F) or a signed decimal, so negative operands are
+// easy to type when exploring the signed/unsigned split.
+function parseValue(raw){
+  const s = raw.trim();
+  if(/^-?\d+$/.test(s) && !/^0x/i.test(s)){
+    const mod = 1n << BigInt(elemBits());
+    let v = BigInt(s);
+    // accept anything representable in the element, read either way; reject the
+    // rest rather than silently wrapping it (overlong hex is rejected too)
+    if(v >= mod || v < -(mod >> 1n)) return null;
+    if(v < 0n) v += mod;
+    return v.toString(16).toUpperCase().padStart(hexW(), '0');
+  }
+  return normHex(s);
+}
+
+function commitSrc(arrName, i, raw){
+  const v = parseValue(raw);
+  if(v === null) return;
+  (arrName === 'src1' ? src1 : src2)[i] = v;
+  render(); drawArrows(); updateInfo();
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+// Both operands map 1:1 onto the result bit in the same column, so the hovered
+// index gets two near-vertical wires converging on k1[i].
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  const flow = document.getElementById('flow');
+  if(!canv || !flow) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = flow.offsetWidth, H = flow.offsetHeight;
+  canv.width = W*dpr; canv.height = H*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const idx = hovIdx();
+  if(idx < 0 || !writes(idx)) return;
+
+  const cr = canv.getBoundingClientRect();
+  function topPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.top - cr.top]; }
+  function botPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.bottom - cr.top]; }
+
+  const [dx, dy] = topPt(cells.dst[idx]);
+  // both wires land on the same cell in the same column, so nudge them apart
+  // horizontally to keep the two operands distinguishable
+  const spread = Math.min(5, cells.dst[idx].getBoundingClientRect().width / 6);
+  for(const [cell, color, off] of [[cells.src1[idx], '#378ADD', -spread], [cells.src2[idx], '#2E8B87', spread]]){
+    const [x1, y1] = botPt(cell);
+    const x2 = dx + off, y2 = dy;
+    const my = (y1 + y2) / 2;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.75;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 4, y2 - 7);
+    ctx.lineTo(x2 + 4, y2 - 7);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const s of SIZES){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = s.key;
+  btn.textContent = `VPCMP[U]${s.name}`;
+  btn.title = `VPCMP${s.name} / VPCMPU${s.name} — packed ${s.elemName} predicate compare into an opmask`;
+  btn.addEventListener('click', () => selectSize(s.key));
+  tabBar.appendChild(btn);
+}
+rebuildPredOptions();
+window.addEventListener('hashchange', () => {
+  const p = parseHash(location.hash.replace(/^#/, ''));
+  if(!p) return;
+  if(p.key !== SZ.key){ sign = p.sign; selectSize(p.key); }
+  else if(p.sign !== sign){ changeSign(p.sign); }
+});
+window.addEventListener('resize', drawArrows);
+
+const initial = parseHash(location.hash.replace(/^#/, ''));
+sign = initial ? initial.sign : 's';
+selectSize(initial ? initial.key : 'b');
+</script>
+</body>
+</html>
