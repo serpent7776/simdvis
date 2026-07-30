@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KUNPCKBW / KUNPCKWD / KUNPCKDQ — Interactive Opmask Concatenation Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 1000px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 16), 1fr); column-gap: 3px; row-gap: 3px; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 12px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 36px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 12px; line-height: 1; }
+
+  /* A row split down the middle. The gap is its own grid column rather than a
+     margin on the first cell of the low half, which would come out of that
+     cell's width and leave it visibly narrower than its neighbours. */
+  .reg-grid.split, .strip.split {
+    grid-template-columns: repeat(var(--half), 1fr) var(--seam-w) repeat(var(--half), 1fr);
+  }
+  .reg-grid.split { --seam-w: 9px; }
+  .strip.split { --seam-w: 7px; }
+
+  /* SRC1 = k2, the operand that becomes the *high* half */
+  .s1-cell { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; }
+  .s1-cell:hover { background: #D8C9F4; }
+  .s1-cell.lit { box-shadow: 0 0 0 2.5px #8367C7; }
+  /* SRC2 = k3, the operand that becomes the *low* half */
+  .s2-cell { background: #FDF0D8; border-color: #EF9F27; color: #412402; cursor: pointer; }
+  .s2-cell:hover { background: #FAC775; }
+  .s2-cell.lit { box-shadow: 0 0 0 2.5px #EF9F27; }
+  /* destination k1 */
+  .dst-cell { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-cell.lit { box-shadow: 0 0 0 2.5px #639922; }
+
+  .cell.off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .s1-cell.off:hover, .s2-cell.off:hover { background: #E4E1D5; }
+
+  /* the upper half of a source register: present, drawn to the same scale as
+     everything else, but never read */
+  .ign-cell { background: transparent; border-style: dashed; border-color: var(--border2);
+              color: var(--text3); cursor: default; opacity: .55; }
+
+  @media (prefers-color-scheme: dark) {
+    .s1-cell { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .s1-cell:hover { background: #4F2D94; }
+    .s2-cell { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .s2-cell:hover { background: #8A4E08; }
+    .dst-cell { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .cell.off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .s1-cell.off:hover, .s2-cell.off:hover { background: #3A3A38; }
+  }
+
+  /* The top edge of every k1 cell carries the colour of the source half feeding
+     it, so the split is readable without hovering anything. Last of the k1 rules
+     in both themes: every .off rule sets the border-color shorthand, so anything
+     declared after this would strip the colour back off a cleared cell — and a
+     cleared cell keeping its stripe is the whole point of the row. */
+  .dst-cell.from1 { border-top: 3px solid #8367C7; }
+  .dst-cell.from2 { border-top: 3px solid #EF9F27; }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 44px; }
+
+  /* Under a whole k1 row: a filled bar spanning each half, in that half's source
+     colour and labelled with the range it covers. This is what ties the halves
+     back to their operands once the diagram is split across blocks. */
+  /* Two equal halves, gapped to match the break in the k1 row above: the seam
+     column plus the column-gap either side of it. Keep in step with the seam
+     widths on .reg-grid.split / .strip.split. */
+  .prov { display: flex; gap: 9px; margin-top: 4px; }   /* strip:  1 + 7 + 1 */
+  .prov.cells { gap: 15px; }                            /* cells:  3 + 9 + 3 */
+  .prov span {
+    flex: 1 1 0; font-family: var(--font-mono); font-size: 10px; padding: 2px 0;
+    border-radius: 3px; text-align: center; border: 0.5px solid; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .prov .h1 { background: #EEE7FA; border-color: #8367C7; color: #2A1356; }
+  .prov .h2 { background: #FDF0D8; border-color: #EF9F27; color: #412402; }
+  @media (prefers-color-scheme: dark) {
+    .prov .h1 { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .prov .h2 { background: #633806; border-color: #EF9F27; color: #FAC775; }
+  }
+
+  /* the bit range a row covers, stated loudly enough to survive the split */
+  .rng { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text); }
+
+  /* k1 reassembled: too narrow for per-bit indices, wide enough to show that the
+     halves above are two ends of one register */
+  .strip { display: grid; grid-template-columns: repeat(var(--cols, 64), 1fr); column-gap: 1px; }
+  .sbit {
+    height: 22px; border-radius: 2px; border: 0.5px solid;
+    font-family: var(--font-mono); font-size: 9px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; min-width: 0;
+    background: #EAF3DE; border-color: #639922; color: #27500A;
+  }
+  .sbit.off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .sbit.lit { box-shadow: 0 0 0 2px #639922; }
+  @media (prefers-color-scheme: dark) {
+    .sbit { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .sbit.off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+  }
+  /* after every .off rule, for the reason given on .dst-cell.from1 — and it
+     matters more here: the strip has no bit indices, so the stripe is the only
+     standing cue for which source a tick came from */
+  .sbit.from1 { border-top: 2.5px solid #8367C7; }
+  .sbit.from2 { border-top: 2.5px solid #EF9F27; }
+
+  .flow { position: relative; }
+  /* behind the cells: the wires show in the row gap and pass cleanly under the
+     opaque cell backgrounds */
+  .flow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .flow .reg-grid, .flow .row-lbl, .flow .prov,
+  .flow .strip { position: relative; z-index: 1; }
+
+  .kres { margin-top: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text2); line-height: 1.7; }
+  .kres strong { color: var(--text); font-weight: 600; }
+  .kres div { overflow-wrap: anywhere; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  .note {
+    font-size: 11px; color: var(--text3); line-height: 1.6;
+    margin-top: .75rem; padding-left: 10px; border-left: 2px solid var(--border2);
+  }
+  .note strong { color: var(--text2); }
+  .note code { font-family: var(--font-mono); }
+
+  input[type=text] {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+    font-family: var(--font-mono);
+  }
+
+  .srcctl { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .srcctl input[type=text] { width: 104px; }
+  .srcctl button {
+    font-size: 10px; font-family: var(--font-mono); padding: 3px 7px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text2); cursor: pointer;
+  }
+  .srcctl button:hover { background: var(--bg3); color: var(--text); }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge ba" id="expr-badge"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="flow" id="flow">
+    <div id="stack"></div>
+    <canvas id="arrows"></canvas>
+  </div>
+  <div class="kres" id="kres"></div>
+
+  <div class="info" id="info">Hover over any bit to see where it comes from or goes to.</div>
+
+  <div class="note" id="note"></div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// KUNPCK{BW,WD,DQ} k1, k2, k3 glue two opmasks into one twice as wide:
+//
+//   DEST[N-1:0]    := SRC2[N-1:0]     ← k3 becomes the LOW half
+//   DEST[2N-1:N]   := SRC1[N-1:0]     ← k2 becomes the HIGH half
+//   DEST[63:2N]    := 0
+//
+// Despite the name it does not interleave anything — unlike PUNPCK*, which
+// really does zip two vectors together element by element, KUNPCK is a plain
+// concatenation: k1 = (k2 << N) | k3. Every bit keeps its neighbours.
+//
+//   src : width of each source half, in bits
+//   gov : what the resulting mask governs, for orientation
+const FORMS = [
+  { key:'bw', name:'BW', src:8,  feat:'AVX-512F',  enc:'VEX.L1.66.0F.W0 4B /r',
+    srcGov:'8 qwords in a ZMM', dstGov:'16 dwords in a ZMM' },
+  { key:'wd', name:'WD', src:16, feat:'AVX-512BW', enc:'VEX.L1.0F.W0 4B /r',
+    srcGov:'16 dwords in a ZMM', dstGov:'32 words in a ZMM' },
+  { key:'dq', name:'DQ', src:32, feat:'AVX-512BW', enc:'VEX.L1.0F.W1 4B /r',
+    srcGov:'32 words in a ZMM', dstGov:'64 bytes in a ZMM' },
+];
+const FORM_BY_KEY = {};
+for(const f of FORMS) FORM_BY_KEY[f.key] = f;
+
+// Widest row we will draw as full cells — beyond this they are too narrow to
+// carry a two-digit bit index, and k1 switches to a compact strip.
+const COLS_MAX = 32;
+
+// Parse a deep-link hash like "kunpckbw" → 'bw'.
+function parseHash(h){
+  const m = /^kunpck(bw|wd|dq)$/.exec(h);
+  return m ? m[1] : null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let FM;                    // current form descriptor from FORMS
+let N;                     // source half width in bits; destination is 2N
+// Kept at the widest source size (32) so switching BW → DQ → BW preserves edits.
+let k2bits = new Array(32).fill(0);
+let k3bits = new Array(32).fill(0);
+// A single hover index in destination-bit space, 0..2N-1. Because the source row
+// is laid out in the same order as the destination, source position u and
+// destination bit u are the same column — the whole mapping is the identity.
+let hov = -1, hovIsDst = false;
+let cells;                 // { src:[…], dst:[…] } indexed by destination bit
+
+// ─── Bit access ─────────────────────────────────────────────────────────────
+// Destination bit u comes from k2 when it is in the high half, k3 otherwise.
+function fromK2(u){ return u >= N; }
+function bitAt(u){ return fromK2(u) ? k2bits[u - N] : k3bits[u]; }
+function setBitAt(u, v){ if(fromK2(u)) k2bits[u - N] = v; else k3bits[u] = v; }
+function regOf(u){ return fromK2(u) ? 'k2' : 'k3'; }
+function idxIn(u){ return fromK2(u) ? u - N : u; }
+
+// ─── Instruction metadata ───────────────────────────────────────────────────
+function instrName(){ return 'kunpck' + FM.key; }
+function instrTitle(){ return instrName().toUpperCase(); }
+function instrRef(){
+  // the Intel manual documents all three widths on one page
+  return 'https://www.felixcloutier.com/x86/kunpckbw:kunpckwd:kunpckdq';
+}
+
+function instrSubtitle(){
+  return `Concatenate two ${N}-bit opmasks into one ${2*N}-bit opmask: <code>k3</code> supplies the low ` +
+         `${N} bits and <code>k2</code> is shifted up to sit above it, giving ` +
+         `<code>k1 = (k2 &lt;&lt; ${N}) | k3</code>. Each source mask governs ${FM.srcGov}; the result governs ` +
+         `${FM.dstGov}. <strong>Nothing is interleaved</strong> — in spite of the name this is not the mask ` +
+         `equivalent of <code>PUNPCK</code>.`;
+}
+
+function instrNote(){
+  const zero = 2*N < 64
+    ? `Bits ${2*N}..63 of <code>k1</code> are zeroed, so the whole 64-bit register is written. `
+    : `All 64 bits of <code>k1</code> are written. `;
+  return `<strong>Operand order.</strong> In <code>${instrTitle()} k1, k2, k3</code> the manual calls ` +
+         `<code>k2</code> SRC1 and <code>k3</code> SRC2, and it is <em>SRC2</em> that keeps the low ` +
+         `bits — the second source ends up on the right, matching how the operands read in a ` +
+         `<code>&lt;&lt;</code>/<code>|</code> expression. ` + zero +
+         `Bits above ${N-1} in either source are ignored. Encoded as <code>${FM.enc}</code>; ` +
+         `<code>KUNPCKBW</code> is the only form available with just AVX-512F.`;
+}
+
+// ─── Value helpers ──────────────────────────────────────────────────────────
+function maskVal(get, w){
+  let v = 0n;
+  for(let i=0; i<w; i++) if(get(i)) v |= (1n << BigInt(i));
+  return v;
+}
+function k2Val(){ return maskVal(i => k2bits[i], N); }
+function k3Val(){ return maskVal(i => k3bits[i], N); }
+function dstVal(){ return maskVal(bitAt, 2*N); }
+
+function fmtHex(v, w){ return '0x' + v.toString(16).toUpperCase().padStart(w/4, '0'); }
+function fmtBin(v, w){ return '0b' + v.toString(2).padStart(w, '0'); }
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function selectForm(key){
+  FM = FORM_BY_KEY[key] || FORMS[0];
+  N = FM.src;
+  hov = -1;
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+function syncBadges(){
+  const eb = document.getElementById('expr-badge');
+  eb.textContent = `k1 = (k2 << ${N}) | k3`;
+  eb.title = `${instrTitle()} k1, k2, k3`;
+  document.getElementById('isa-badge').textContent = FM.feat;
+  document.getElementById('width-badge').textContent = `${N} + ${N} → ${2*N} bits`;
+}
+
+// Refresh everything that depends on the form but not on cell geometry.
+function updatePresentation(){
+  document.title = instrTitle() + ' — Interactive Opmask Concatenation Visualiser';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === FM.key));
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('note').innerHTML = instrNote();
+  document.getElementById('isa-ref').href = instrRef();
+  syncBadges();
+  const name = instrName();
+  if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+// Cells are built once per build() and cached in `cells`. render() updates only
+// data-dependent attributes; refreshHover() updates only hover styling.
+function makeCell(label){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${label}</span><span class="cell-val"></span>`;
+  el._val = el.querySelector('.cell-val');
+  return el;
+}
+
+// k1 outgrows a row of full cells before either source does, so the widest form
+// draws it as a compact strip: same cells, same indexing, no room for the
+// per-bit index labels — which the tooltips and the info line still carry.
+function compact(){ return 2 * N > COLS_MAX; }
+
+function div(cls){ const d = document.createElement('div'); d.className = cls; return d; }
+function rowLabel(html){ const d = div('row-lbl'); d.innerHTML = html; return d; }
+function gap(){ return div('gap'); }
+
+// Mark a single-line row as split in the middle, and give it the empty grid
+// item that lands in the seam column.
+function splitInHalf(grid){
+  grid.classList.add('split');
+  grid.style.setProperty('--half', N);
+  return div('');
+}
+
+// A source register: `count` bits laid over `cols` columns, wrapping onto a
+// second line when it does not fit. Anything at or above bit N is an inert cell
+// — the instruction reads only the low N bits, and drawing the rest keeps the
+// whole register in view rather than just the part that gets used.
+function srcRow(which, count, cols){
+  const grid = div('reg-grid');
+  grid.style.setProperty('--cols', cols);
+  // only when both halves share a line — a wrapped register is already split
+  const seam = cols > N ? splitInHalf(grid) : null;
+  const list = which === 1 ? cells.k2 : cells.k3;
+  for(let p=0; p<count; p++){
+    const j = count - 1 - p;
+    if(seam && j === N - 1) grid.appendChild(seam);
+    const c = makeCell(j);
+    if(j >= N){
+      // Only a glimpse of the ignored region unless count reaches 64: the
+      // registers are really 64 bits wide. The tooltip says so either way.
+      c.className = 'cell ign-cell';
+      c._val.textContent = '–';
+      c.title = `k${which+1}[${j}] is not read — KUNPCK${FM.name} uses only bits ${N-1}:0 of each source`;
+    } else {
+      const u = which === 1 ? j + N : j;    // where this bit lands in k1
+      c.classList.add(which === 1 ? 's1-cell' : 's2-cell');
+      c.onclick = () => { setBitAt(u, bitAt(u) ? 0 : 1); hov = u; hovIsDst = false; render(); drawArrows(); updateInfo(); };
+      wireHover(c, u, false);
+      list[j] = c;
+    }
+    grid.appendChild(c);
+  }
+  return grid;
+}
+
+// k1, most-significant bit first. Each cell remembers its own base class so that
+// render() can restyle either shape without caring which one is on screen.
+function dstRow(){
+  const W = 2 * N;
+  const small = compact();
+  const grid = div(small ? 'strip' : 'reg-grid');
+  grid.style.setProperty('--cols', W);
+  const seam = splitInHalf(grid);        // k1 always shows both halves on one line
+  for(let u=W-1; u>=0; u--){
+    if(u === N - 1) grid.appendChild(seam);
+    const d = small ? makeStripCell() : makeCell(u);
+    d._cls = small ? 'sbit' : 'cell dst-cell';
+    wireHover(d, u, true);
+    grid.appendChild(d);
+    cells.dst[u] = d;
+  }
+  return grid;
+}
+
+// A strip cell is its own value slot — there is no index line to make room for.
+function makeStripCell(){
+  const el = document.createElement('div');
+  el._val = el;
+  return el;
+}
+
+// The label above a source row, carrying that operand's editing controls.
+function srcLabel(which){
+  const reg = which === 1 ? 'k2' : 'k3';
+  const lands = which === 1 ? `k1[${2*N-1}:${N}]` : `k1[${N-1}:0]`;
+  return rowLabel(
+    `<span class="badge ${which === 1 ? 'bp' : 'ba'}">${reg}</span>` +
+    `<span class="hint">SRC${which} &middot; ${reg}[${N-1}:0] &rarr; ${lands} ` +
+    `&middot; bits ${N}..63 ignored &middot; click to toggle</span>` +
+    `<span class="srcctl">` +
+      `<input type="text" id="${reg}hex" spellcheck="false" ` +
+             `title="Type a hex or binary value for the whole mask, then press Enter">` +
+      // the presets only touch the bits this form reads — see setValue()
+      `<button onclick="preset(${which},'zero')" title="clear ${reg}[${N-1}:0]">0</button>` +
+      `<button onclick="preset(${which},'ones')" title="set every bit of ${reg}[${N-1}:0]">all 1</button>` +
+      `<button onclick="preset(${which},'alt')" title="0101… across ${reg}[${N-1}:0]">alt</button>` +
+      `<button onclick="preset(${which},'rand')" title="random bits across ${reg}[${N-1}:0]">rand</button>` +
+    `</span>`);
+}
+
+function dstLabel(range, hint){
+  return rowLabel(`<span class="badge bg">k1</span>` +
+                  (range ? `<span class="rng">${range}</span>` : '') +
+                  `<span class="hint">${hint}</span>`);
+}
+
+// Every k register is 64 bits wide; the narrow forms zero what they do not write.
+function zeroNote(){ return 2*N < 64 ? ` &middot; bits ${2*N}..63 zeroed` : ''; }
+
+// The bar under the k1 row, naming the source behind each half. This is what
+// ties the result back to its operands, so it is filled in the source colours
+// rather than set as a caption.
+function provStrip(){
+  const p = div(compact() ? 'prov' : 'prov cells');
+  for(const [cls, text] of [['h1', `k1[${2*N-1}:${N}] ← k2[${N-1}:0]`],
+                            ['h2', `k1[${N-1}:0] ← k3[${N-1}:0]`]]){
+    const s = document.createElement('span');
+    s.className = cls;
+    s.textContent = text;
+    p.appendChild(s);
+  }
+  return p;
+}
+
+function build(){
+  const W = 2 * N;
+  cells = { k2: new Array(N), k3: new Array(N), dst: new Array(W) };
+  const stack = document.getElementById('stack');
+  stack.innerHTML = '';
+
+  // Both sources are always drawn to their full W bits, ignored half included.
+  // Past COLS_MAX the row wraps rather than shrinking, so the ignored bits get a
+  // line of their own and the live bits keep readable cells underneath.
+  const small = compact();
+  const cols = Math.min(W, COLS_MAX);
+  stack.append(
+    srcLabel(1), srcRow(1, W, cols), gap(),
+    srcLabel(2), srcRow(2, W, cols), gap(),
+    dstLabel(`[${W-1}:0]`, small
+      ? `one tick per bit &mdash; too narrow to label, so hover a tick for its source` + zeroNote()
+      : `k1[${W-1}:${N}] = k2[${N-1}:0] &nbsp;&middot;&nbsp; k1[${N-1}:0] = k3[${N-1}:0]` + zeroNote()),
+    dstRow(), provStrip());
+
+  // the mask fields are rebuilt with the rows, so their handlers go on afresh
+  wireMaskInput('k2hex', 1, k2Val);
+  wireMaskInput('k3hex', 2, k3Val);
+}
+
+// The source cell holding the bit that destination bit u receives.
+function srcCell(u){ return fromK2(u) ? cells.k2[u - N] : cells.k3[u]; }
+
+// Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
+function wireHover(el, u, isDst){
+  el.addEventListener('mouseenter', () => { hov = u; hovIsDst = isDst; refreshHover(); drawArrows(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hov = -1; refreshHover(); drawArrows(); resetInfo(); });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  const W = 2 * N;
+  for(let u=0; u<W; u++){
+    const b = bitAt(u);
+    const reg = regOf(u), i = idxIn(u);
+
+    const s = srcCell(u);
+    s.className = 'cell ' + (fromK2(u) ? 's1-cell' : 's2-cell') + (b ? '' : ' off');
+    s._val.textContent = b;
+    s.title = `${reg}[${i}] = ${b} → k1[${u}] — click to toggle`;
+
+    const d = cells.dst[u];
+    d.className = d._cls + (fromK2(u) ? ' from1' : ' from2') + (b ? '' : ' off');
+    d._val.textContent = b;
+    d.title = `k1[${u}] = ${reg}[${i}] = ${b}`;
+  }
+
+  document.getElementById('k2hex').value = fmtHex(k2Val(), N);
+  document.getElementById('k3hex').value = fmtHex(k3Val(), N);
+  renderKres();
+  refreshHover();
+}
+
+// All three masks as single values — the way an opmask is actually consumed.
+function renderKres(){
+  const a = k2Val(), b = k3Val(), d = dstVal();
+  document.getElementById('kres').innerHTML =
+    `<div>k2 = <strong>${fmtHex(a, N)}</strong> &middot; ${fmtBin(a, N)} <span class="hint">(${N}-bit)</span></div>` +
+    `<div>k3 = <strong>${fmtHex(b, N)}</strong> &middot; ${fmtBin(b, N)} <span class="hint">(${N}-bit)</span></div>` +
+    `<div>k1 = <strong>${fmtHex(d, 2*N)}</strong> &middot; ${fmtBin(d, 2*N)}` +
+    ` <span class="hint">(bit ${2*N-1} … bit 0)</span></div>` +
+    `<div class="hint">${summary(a, b)}</div>`;
+}
+
+function summary(a, b){
+  const pop = v => v.toString(2).split('').filter(c => c === '1').length;
+  const na = pop(a), nb = pop(b);
+  return `${na + nb} bit${na + nb === 1 ? '' : 's'} set in k1 — ${na} from k2 (now at bits ` +
+         `${2*N-1}..${N}) and ${nb} from k3 (unmoved, at bits ${N-1}..0)`;
+}
+
+function refreshHover(){
+  const W = 2 * N;
+  for(let u=0; u<W; u++){
+    srcCell(u).classList.toggle('lit', u === hov);
+    cells.dst[u].classList.toggle('lit', u === hov);
+  }
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any bit to see where it comes from or goes to.'; }
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  if(hov < 0){ resetInfo(); return; }
+  const b = bitAt(hov), reg = regOf(hov), i = idxIn(hov);
+
+  if(!hovIsDst){
+    box.innerHTML = fromK2(hov)
+      ? `<strong>k2[${i}] = ${b}</strong> moves ${N} places up into the high half ` +
+        `&rarr; <strong>k1[${hov}] = ${b}</strong> <code>(${i} + ${N} = ${hov})</code>`
+      : `<strong>k3[${i}] = ${b}</strong> stays where it is, in the low half ` +
+        `&rarr; <strong>k1[${hov}] = ${b}</strong>`;
+    return;
+  }
+
+  box.innerHTML = fromK2(hov)
+    ? `<strong>k1[${hov}]</strong> is in the high half, so it takes <strong>k2[${i}] = ${b}</strong> ` +
+      `<code>(${hov} &minus; ${N} = ${i})</code>`
+    : `<strong>k1[${hov}]</strong> is in the low half, so it takes <strong>k3[${i}] = ${b}</strong> ` +
+      `<code>(same bit position)</code>`;
+}
+
+// ─── Source mask editing ────────────────────────────────────────────────────
+// Only the low N bits belong to the current form; the rest of the arrays is left
+// alone so that widening the masks again restores what was there before.
+function setValue(which, v){
+  const arr = which === 1 ? k2bits : k3bits;
+  for(let i=0; i<N; i++) arr[i] = Number((v >> BigInt(i)) & 1n);
+  hov = -1;
+  render(); drawArrows(); resetInfo();
+}
+
+function preset(which, kind){
+  if(kind === 'zero') setValue(which, 0n);
+  else if(kind === 'ones') setValue(which, (1n << BigInt(N)) - 1n);
+  else if(kind === 'alt'){
+    let v = 0n;
+    for(let i=0; i<N; i+=2) v |= (1n << BigInt(i));
+    setValue(which, v);
+  } else if(kind === 'rand'){
+    let v = 0n;
+    for(let i=0; i<N; i++) if(Math.random() < 0.5) v |= (1n << BigInt(i));
+    setValue(which, v);
+  }
+}
+
+// Accept binary (0b1011) or hex, with or without the 0x prefix — the field
+// always shows hex, so a bare value is read as hex too. Anything that does not
+// fit the mask width is rejected rather than silently truncated.
+function parseMask(raw){
+  const s = raw.trim().replace(/[_\s]/g, '');
+  let v;
+  if(/^0b/i.test(s)){
+    // 'b' is also a hex digit, so the bare-hex branch below would happily read a
+    // botched binary literal like 0b12 as 0x0B12 — refuse it instead
+    if(!/^0b[01]+$/i.test(s)) return null;
+    v = BigInt(s.toLowerCase());
+  }
+  else if(/^(0x)?[0-9a-f]+$/i.test(s)) v = BigInt(/^0x/i.test(s) ? s : '0x' + s);
+  else return null;
+  return v < (1n << BigInt(N)) ? v : null;
+}
+
+function wireMaskInput(id, which, cur){
+  const el = document.getElementById(id);
+  el.addEventListener('keydown', e => {
+    if(e.key === 'Enter'){
+      const v = parseMask(el.value);
+      if(v === null) el.value = fmtHex(cur(), N);
+      else setValue(which, v);
+      el.blur();
+    }
+    if(e.key === 'Escape'){ el.value = fmtHex(cur(), N); el.blur(); }
+  });
+  el.addEventListener('blur', () => { el.value = fmtHex(cur(), N); });
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+// One wire per bit. Within a row every wire is parallel to its neighbours and
+// the two fans never cross, which is the point: k2 lands whole in the left half
+// of k1 and k3 lands whole in the right half, in order. Hovering isolates one.
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  const flow = document.getElementById('flow');
+  if(!canv || !flow) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = flow.offsetWidth, H = flow.offsetHeight;
+  canv.width = W*dpr; canv.height = H*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const cr = canv.getBoundingClientRect();
+  function botPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.bottom - cr.top]; }
+  function topPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.top - cr.top]; }
+
+  function wire(u, alpha){
+    const [x1, y1] = botPt(srcCell(u));
+    const [x2, y2] = topPt(cells.dst[u]);
+    const my = (y1 + y2) / 2;
+    const col = fromK2(u) ? '#8367C7' : '#EF9F27';
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.75;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 4, y2 - 7);
+    ctx.lineTo(x2 + 4, y2 - 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // One wire at a time. Drawing the whole fan looks like an interleave: the k2
+  // wires have to sweep across the k3 row to reach the far half of k1 and end up
+  // crossing the k3 wires, which is the opposite of what this instruction does.
+  // The standing cue is the coloured bar under k1 instead.
+  if(hov >= 0) wire(hov, 1);
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const f of FORMS){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = f.key;
+  btn.textContent = `KUNPCK${f.name}`;
+  btn.title = `KUNPCK${f.name} — glue two ${f.src}-bit opmasks into a ${2*f.src}-bit one`;
+  btn.addEventListener('click', () => selectForm(f.key));
+  tabBar.appendChild(btn);
+}
+
+window.addEventListener('hashchange', () => {
+  const k = parseHash(location.hash.replace(/^#/, ''));
+  if(k && k !== FM.key) selectForm(k);
+});
+window.addEventListener('resize', drawArrows);
+
+// Two clearly different seeds so which half of k1 came from which source is
+// obvious at a glance; the full 32-bit patterns are laid down so widening the
+// form keeps revealing bits.
+const SEED2 = 0xC3A5F09Bn, SEED3 = 0x1E6D2B47n;
+for(let i=0; i<32; i++){
+  k2bits[i] = Number((SEED2 >> BigInt(i)) & 1n);
+  k3bits[i] = Number((SEED3 >> BigInt(i)) & 1n);
+}
+
+selectForm(parseHash(location.hash.replace(/^#/, '')) || 'bw');
+</script>
+</body>
+</html>
