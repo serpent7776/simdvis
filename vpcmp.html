@@ -51,7 +51,9 @@
     border-radius: var(--radius-lg);
     padding: 1.5rem;
     width: 100%;
-    max-width: 920px;
+    /* wider than the other visualisers: this page carries four selectors, and at
+       XMM/YMM the ISA badge gains "+VL" — at 920px the group wrapped to its own line */
+    max-width: 1000px;
   }
 
   .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
