@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KSHIFTL / KSHIFTR family — Interactive Opmask Shift Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 920px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 16), 1fr); column-gap: 3px; row-gap: 3px; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 12px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 36px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 12px; line-height: 1; }
+
+  /* source opmask k2 — clickable bits */
+  .src-cell { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; }
+  .src-cell:hover { background: #D8C9F4; }
+  .src-cell.off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .src-cell.off:hover { background: #E4E1D5; }
+  /* a bit whose destination index falls outside the mask width — it is dropped */
+  .src-cell.lost { border-style: dashed; opacity: .5; }
+  .src-cell.lit { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  /* destination opmask k1 */
+  .dst-cell { background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-cell.off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  /* a bit the shift filled with zero rather than moving a source bit into */
+  .dst-cell.fill { border-style: dashed; }
+  .dst-cell.lit { box-shadow: 0 0 0 2.5px #639922; }
+
+  @media (prefers-color-scheme: dark) {
+    .src-cell { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .src-cell:hover { background: #4F2D94; }
+    .src-cell.off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .src-cell.off:hover { background: #3A3A38; }
+    .dst-cell { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-cell.off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 40px; }
+
+  .flow { position: relative; }
+  /* behind the cells: the wires show in the row gap and pass cleanly under the
+     opaque cell backgrounds */
+  .flow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .flow .reg-grid, .flow .row-lbl { position: relative; z-index: 1; }
+
+  .kres { margin-top: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--text2); line-height: 1.7; }
+  .kres strong { color: var(--text); font-weight: 600; }
+  .kres div { overflow-wrap: anywhere; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select, input[type=text] {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  input[type=text] { font-family: var(--font-mono); }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  /* keep the selectors together so they wrap as a right-aligned group */
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  input[type=range] { width: 120px; accent-color: #8367C7; }
+  /* the slider is pinned at its top stop for any count that clears the mask */
+  input[type=range].pinned { accent-color: #888780; }
+  input[type=number] {
+    font-size: 11px; font-family: var(--font-mono); width: 48px; padding: 2px 4px;
+    border-radius: 5px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  input[type=number].over { border-color: #EF9F27; background: #FAC775; color: #412402; }
+  @media (prefers-color-scheme: dark) {
+    input[type=number].over { background: #633806; color: #FAC775; }
+  }
+
+  .srcctl { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .srcctl input[type=text] { width: 148px; }
+  .srcctl button {
+    font-size: 10px; font-family: var(--font-mono); padding: 3px 7px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text2); cursor: pointer;
+  }
+  .srcctl button:hover { background: var(--bg3); color: var(--text); }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge ba" id="expr-badge"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+    <label class="ctl">
+      Shift:
+      <select id="dir" onchange="changeDir(this.value)">
+        <option value="l">left (KSHIFTL)</option>
+        <option value="r">right (KSHIFTR)</option>
+      </select>
+    </label>
+    <label class="ctl">
+      imm8:
+      <input type="range" id="count" min="0" step="1" oninput="changeCount(this.value)"
+             title="drag over the useful range — type a larger immediate in the box">
+      <input type="number" id="count-num" min="0" max="255" step="1" oninput="changeCount(this.value)"
+             title="imm8 is a full byte: 0–255. Any value at or above the mask width clears k1.">
+    </label>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="flow" id="flow">
+    <div class="row-lbl">
+      <span class="badge bp">k2</span>
+      <span class="hint">source mask — click a bit to toggle it</span>
+      <span class="srcctl">
+        <input type="text" id="k2hex" spellcheck="false"
+               title="Type a hex or binary value for the whole mask, then press Enter">
+        <button onclick="preset('zero')" title="clear every bit of this mask">0</button>
+        <button onclick="preset('ones')" title="set every bit of this mask">all 1</button>
+        <button onclick="preset('alt')" title="0101… across this mask">alt</button>
+        <button onclick="preset('rand')" title="random bits across this mask">rand</button>
+      </span>
+    </div>
+    <div class="reg-grid" id="src-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge bg">k1</span><span class="hint" id="dst-hint"></span></div>
+    <div class="reg-grid" id="dst-grid"></div>
+    <canvas id="arrows"></canvas>
+  </div>
+  <div class="kres" id="kres"></div>
+
+  <div class="info" id="info">Hover over any bit to see where it comes from or goes to.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// KSHIFTL{B,W,D,Q} / KSHIFTR{B,W,D,Q} shift an opmask register by an immediate
+// count, shifting zeros in and dropping the bits that fall off the end:
+//
+//   KSHIFTL:  k1 = (k2 << imm8) & mask     KSHIFTR:  k1 = (k2 & mask) >> imm8
+//
+// The suffix picks how many low bits of the mask take part; the rest of the
+// 64-bit destination is always zeroed. A count of imm8 >= width clears k1
+// completely — the shift is never rotated or saturated.
+//
+//   bits : mask width the suffix operates on
+//   pairs: the elements such a mask governs, for orientation
+const SIZES = [
+  { key:'b', name:'B', bits:8,  feat:'AVX-512DQ', pairs:'8 qwords in a ZMM (or 8 dwords in a YMM)' },
+  { key:'w', name:'W', bits:16, feat:'AVX-512F',  pairs:'16 dwords in a ZMM (or 16 words in a YMM)' },
+  { key:'d', name:'D', bits:32, feat:'AVX-512BW', pairs:'32 words in a ZMM (or 32 bytes in a YMM)' },
+  { key:'q', name:'Q', bits:64, feat:'AVX-512BW', pairs:'64 bytes in a ZMM' },
+];
+const SIZE_BY_KEY = {};
+for(const s of SIZES) SIZE_BY_KEY[s.key] = s;
+
+const COLS = 16;   // bits per displayed row; narrower masks use one row
+
+// Parse a deep-link hash like "kshiftlw" / "kshiftrq" → { dir:'l', key:'w' }.
+function parseHash(h){
+  const m = /^kshift(l|r)(b|w|d|q)$/.exec(h);
+  return m ? { dir: m[1], key: m[2] } : null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let SZ;                    // current size descriptor from SIZES
+let dir = 'l';             // 'l' = KSHIFTL, 'r' = KSHIFTR
+// imm8 is a full byte and is *not* masked down to the width the way a scalar
+// SHL count is — every value 0..255 is legal, and any of them at or above the
+// mask width simply shifts every bit out.
+let count = 3;
+let N;                     // mask width in bits
+// bits[] is kept at the widest size so switching B → Q → B preserves edits
+let bits = new Array(64).fill(0);
+let hovSrc = -1, hovDst = -1;
+let cells;                 // { src:[…], dst:[…] } indexed by bit number
+
+// ─── Instruction metadata ───────────────────────────────────────────────────
+function instrName(){ return 'kshift' + dir + SZ.key; }
+function instrTitle(){ return instrName().toUpperCase(); }
+function op(){ return dir === 'l' ? '<<' : '>>'; }
+function instrRef(){
+  // the Intel manual documents all four widths of a direction on one page
+  return `https://www.felixcloutier.com/x86/kshift${dir}w:kshift${dir}b:kshift${dir}q:kshift${dir}d`;
+}
+function overflows(){ return count >= N; }
+
+function instrSubtitle(){
+  const towards = dir === 'l' ? 'more significant' : 'less significant';
+  const from    = dir === 'l' ? 'the bottom' : 'the top';
+  const tail = `A ${N}-bit mask governs ${SZ.pairs}.`;
+  if(overflows()){
+    return `<code>imm8 = ${count}</code> is at least the ${N}-bit mask width, so every bit is pushed past ` +
+           `the boundary and <strong>k1 becomes 0</strong> whatever k2 holds. The count is not reduced modulo ` +
+           `the width the way a scalar shift count would be. ${tail}`;
+  }
+  return `Shift the low ${N} bits of an opmask ${dir === 'l' ? 'left' : 'right'} by ` +
+         `<code>imm8 = ${count}</code>: every bit moves ${count} place${count === 1 ? '' : 's'} towards the ` +
+         `${towards} end, zeros enter from ${from}, and bits pushed past the ${N}-bit boundary are discarded. ` +
+         `${tail}`;
+}
+
+// ─── Shift model ────────────────────────────────────────────────────────────
+// Where src bit i lands, and where dst bit i comes from — either can fall
+// outside [0, N), which is exactly what "shifted out" / "zero filled" means.
+function target(i){ return dir === 'l' ? i + count : i - count; }
+function source(i){ return dir === 'l' ? i - count : i + count; }
+function inRange(i){ return i >= 0 && i < N; }
+function dstBit(i){ const s = source(i); return inRange(s) ? bits[s] : 0; }
+
+function maskVal(get){
+  let v = 0n;
+  for(let i=0; i<N; i++) if(get(i)) v |= (1n << BigInt(i));
+  return v;
+}
+function srcVal(){ return maskVal(i => bits[i]); }
+function dstVal(){ return maskVal(dstBit); }
+
+function hexDigits(){ return N / 4; }
+function fmtHex(v){ return '0x' + v.toString(16).toUpperCase().padStart(hexDigits(), '0'); }
+function fmtBin(v){ return '0b' + v.toString(2).padStart(N, '0'); }
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function selectSize(key){
+  SZ = SIZE_BY_KEY[key] || SIZES[1];
+  N = SZ.bits;
+  hovSrc = hovDst = -1;
+  // Clamp a count carried over from a wider form back into the slider's range,
+  // so the immediate never exceeds what the new width's slider can express. A
+  // count of exactly N still clears the mask; larger immediates remain reachable
+  // by typing them into the imm8 box.
+  if(count > N) count = N;
+  document.getElementById('count').max = N;
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+function changeDir(v){
+  if(v === dir) return;
+  dir = v;
+  updatePresentation();
+  render(); drawArrows(); updateInfo();
+}
+
+// The imm8 box is a plain number field, so `max` does not stop someone typing
+// 300 into it — clamp here and snap the box back to what was actually accepted.
+function changeCount(v){
+  const raw = parseInt(v);
+  if(isNaN(raw)) return;                       // empty or half-typed; blur restores it
+  const n = Math.min(255, Math.max(0, raw));
+  if(n !== raw) document.getElementById('count-num').value = n;
+  if(n === count) return;
+  count = n;
+  updatePresentation();
+  render(); drawArrows(); updateInfo();
+}
+
+function syncBadges(){
+  const eb = document.getElementById('expr-badge');
+  eb.textContent = `k1 = k2 ${op()} ${count}`;
+  eb.title = `${instrTitle()} k1, k2, ${count}`;
+  document.getElementById('isa-badge').textContent = SZ.feat;
+  document.getElementById('width-badge').textContent = `${N}-bit mask`;
+}
+
+// Refresh everything that depends on (SZ, dir, count) but not on cell geometry.
+function updatePresentation(){
+  document.title = instrTitle() + ' — Interactive Opmask Shift Visualiser';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === SZ.key));
+  document.getElementById('dir').value = dir;
+  syncCount();
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('isa-ref').href = instrRef();
+  document.getElementById('dst-hint').innerHTML = overflows()
+    ? `k1[i] = 0 for every i — imm8 &ge; ${N} shifts the whole mask out` + upperNote()
+    : (dir === 'l'
+        ? `k1[i] = k2[i &minus; ${count}], zero for i &lt; ${count}` + upperNote()
+        : `k1[i] = k2[i + ${count}], zero for i &ge; ${N - count}` + upperNote());
+  syncBadges();
+  const name = instrName();
+  if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+// Every k register is 64 bits wide; the narrow forms zero what they do not touch.
+function upperNote(){ return N < 64 ? ` — bits ${N}..63 of k1 are zeroed` : ''; }
+
+// The slider spans the useful range only; a larger immediate parks it at the top
+// stop, which produces the identical all-zero result, while the box keeps the
+// real value.
+function syncCount(){
+  const sl = document.getElementById('count');
+  sl.value = Math.min(count, N);
+  sl.classList.toggle('pinned', overflows());
+  const box = document.getElementById('count-num');
+  // Do not fight the caret while the box is being typed into, but do correct it
+  // when the text no longer matches — a width switch can clamp the count from
+  // under a focused box, and a stale number there would contradict the drawing.
+  if(document.activeElement !== box || parseInt(box.value) !== count) box.value = count;
+  box.classList.toggle('over', overflows());
+  box.title = overflows()
+    ? `imm8 = ${count} ≥ ${N} — every bit is shifted out, so k1 = 0`
+    : 'imm8 is a full byte: 0–255. Any value at or above the mask width clears k1.';
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+// Cells are built once per build() and cached in `cells`. render() updates only
+// data-dependent attributes; refreshHover() updates only hover styling.
+function makeCell(i){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${i}</span><span class="cell-val"></span>`;
+  el._val = el.querySelector('.cell-val');
+  return el;
+}
+
+function build(){
+  cells = { src: new Array(N), dst: new Array(N) };
+  const srcG = document.getElementById('src-grid');
+  const dstG = document.getElementById('dst-grid');
+  const cols = Math.min(N, COLS);
+  for(const g of [srcG, dstG]){ g.style.setProperty('--cols', cols); g.innerHTML = ''; }
+
+  // laid out most-significant bit first, the way a binary literal is written, so
+  // that a KSHIFTL visibly moves bits to the left
+  for(let p=0; p<N; p++){
+    const i = N - 1 - p;
+
+    const s = makeCell(i);
+    s.onclick = () => { bits[i] = bits[i] ? 0 : 1; hovSrc = i; hovDst = -1; render(); drawArrows(); updateInfo(); };
+    wireHover(s, () => hovSrc = i);
+    srcG.appendChild(s);
+    cells.src[i] = s;
+
+    const d = makeCell(i);
+    wireHover(d, () => hovDst = i);
+    dstG.appendChild(d);
+    cells.dst[i] = d;
+  }
+}
+
+// Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
+function wireHover(el, setHov){
+  el.addEventListener('mouseenter', () => { hovSrc = hovDst = -1; setHov(); refreshHover(); drawArrows(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hovSrc = hovDst = -1; refreshHover(); drawArrows(); resetInfo(); });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  for(let i=0; i<N; i++){
+    const b = bits[i];
+    const lost = !inRange(target(i));
+    const s = cells.src[i];
+    s.className = 'cell src-cell' + (b ? '' : ' off') + (lost ? ' lost' : '');
+    s._val.textContent = b;
+    s.title = lost
+      ? `k2[${i}] = ${b} — shifted out past ${dir === 'l' ? `bit ${N-1}, the top of the mask` : 'bit 0'}, discarded`
+      : `k2[${i}] = ${b} → k1[${target(i)}] — click to toggle`;
+
+    const from = source(i);
+    const filled = !inRange(from);
+    const v = dstBit(i);
+    const d = cells.dst[i];
+    d.className = 'cell dst-cell' + (v ? '' : ' off') + (filled ? ' fill' : '');
+    d._val.textContent = v;
+    d.title = filled
+      ? `k1[${i}] = 0 — zero shifted in`
+      : `k1[${i}] = k2[${from}] = ${v}`;
+  }
+
+  document.getElementById('k2hex').value = fmtHex(srcVal());
+  renderKres();
+  refreshHover();
+}
+
+// Both masks as single values — the way an opmask is actually consumed.
+function renderKres(){
+  const s = srcVal(), d = dstVal();
+  const dropped = countDropped();
+  document.getElementById('kres').innerHTML =
+    `<div>k2 = <strong>${fmtHex(s)}</strong> &middot; ${fmtBin(s)}</div>` +
+    `<div>k1 = <strong>${fmtHex(d)}</strong> &middot; ${fmtBin(d)}` +
+    ` <span class="hint">(bit ${N-1} … bit 0)</span></div>` +
+    `<div class="hint">${summary(dropped)}</div>`;
+}
+
+function summary(dropped){
+  if(count === 0) return 'imm8 = 0 — k1 is a copy of k2';
+  if(overflows()) return `imm8 = ${count} ≥ ${N} — the whole mask is shifted out, k1 = 0`;
+  const zeros = count;
+  return `${dropped} set bit${dropped === 1 ? '' : 's'} shifted out, ` +
+         `${zeros} zero${zeros === 1 ? '' : 's'} shifted in`;
+}
+
+function countDropped(){
+  let n = 0;
+  for(let i=0; i<N; i++) if(bits[i] && !inRange(target(i))) n++;
+  return n;
+}
+
+// The hovered pair: the source bit and the destination bit it feeds. Either end
+// can be -1 when the partner lies outside the mask.
+function hovPair(){
+  if(hovSrc >= 0){ const t = target(hovSrc); return [hovSrc, inRange(t) ? t : -1]; }
+  if(hovDst >= 0){ const s = source(hovDst); return [inRange(s) ? s : -1, hovDst]; }
+  return [-1, -1];
+}
+
+function refreshHover(){
+  const [s, d] = hovPair();
+  for(let i=0; i<N; i++){
+    cells.src[i].classList.toggle('lit', i === s);
+    cells.dst[i].classList.toggle('lit', i === d);
+  }
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any bit to see where it comes from or goes to.'; }
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  const [s, d] = hovPair();
+  if(s < 0 && d < 0){ resetInfo(); return; }
+
+  if(hovSrc >= 0){
+    const b = bits[hovSrc], t = target(hovSrc);
+    box.innerHTML = inRange(t)
+      ? `<strong>k2[${hovSrc}] = ${b}</strong> moves ${count} place${count === 1 ? '' : 's'} ` +
+        `${dir === 'l' ? 'up' : 'down'} &rarr; <strong>k1[${t}] = ${b}</strong>` +
+        (count === 0 ? ' <span class="hint">(imm8 = 0, so it stays put)</span>' : '')
+      : `<strong>k2[${hovSrc}] = ${b}</strong> would land at bit ${t}, outside the ${N}-bit mask ` +
+        `&rarr; it is <strong>shifted out and discarded</strong>` +
+        (b ? '' : ' <span class="hint">(it is 0 anyway)</span>');
+    return;
+  }
+
+  const from = source(hovDst);
+  box.innerHTML = inRange(from)
+    ? `<strong>k1[${hovDst}]</strong> takes <strong>k2[${from}] = ${bits[from]}</strong> ` +
+      `<code>(${hovDst} ${dir === 'l' ? '&minus;' : '+'} ${count} = ${from})</code>`
+    : `<strong>k1[${hovDst}] = 0</strong> — source bit ${from} is outside the mask, so a ` +
+      `<strong>zero is shifted in</strong> from the ${dir === 'l' ? 'bottom' : 'top'}`;
+}
+
+// ─── Source mask editing ────────────────────────────────────────────────────
+// Only the low N bits belong to the current form; the rest of bits[] is left
+// alone so that widening the mask again restores what was there before.
+function setValue(v){
+  for(let i=0; i<N; i++) bits[i] = Number((v >> BigInt(i)) & 1n);
+  hovSrc = hovDst = -1;
+  render(); drawArrows(); resetInfo();
+}
+
+function preset(kind){
+  if(kind === 'zero') setValue(0n);
+  else if(kind === 'ones') setValue((1n << BigInt(N)) - 1n);
+  else if(kind === 'alt'){
+    let v = 0n;
+    for(let i=0; i<N; i+=2) v |= (1n << BigInt(i));
+    setValue(v);
+  } else if(kind === 'rand'){
+    let v = 0n;
+    for(let i=0; i<N; i++) if(Math.random() < 0.5) v |= (1n << BigInt(i));
+    setValue(v);
+  }
+}
+
+// Accept binary (0b1011) or hex, with or without the 0x prefix — the field
+// always shows hex, so a bare value is read as hex too. Anything that does not
+// fit the mask width is rejected rather than silently truncated.
+function parseMask(raw){
+  const s = raw.trim().replace(/[_\s]/g, '');
+  let v;
+  if(/^0b/i.test(s)){
+    // 'b' is also a hex digit, so the bare-hex branch below would happily read a
+    // botched binary literal like 0b12 as 0x0B12 — refuse it instead
+    if(!/^0b[01]+$/i.test(s)) return null;
+    v = BigInt(s.toLowerCase());
+  }
+  else if(/^(0x)?[0-9a-f]+$/i.test(s)) v = BigInt(/^0x/i.test(s) ? s : '0x' + s);
+  else return null;
+  return v < (1n << BigInt(N)) ? v : null;
+}
+
+const k2in = document.getElementById('k2hex');
+k2in.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){
+    const v = parseMask(k2in.value);
+    if(v === null) k2in.value = fmtHex(srcVal());
+    else setValue(v);
+    k2in.blur();
+  }
+  if(e.key === 'Escape'){ k2in.value = fmtHex(srcVal()); k2in.blur(); }
+});
+k2in.addEventListener('blur', () => { k2in.value = fmtHex(srcVal()); });
+
+// Leaving the imm8 box empty or mid-edit must not leave the number on screen
+// disagreeing with the shift that is actually drawn.
+const cntin = document.getElementById('count-num');
+cntin.addEventListener('blur', () => { cntin.value = count; });
+cntin.addEventListener('keydown', e => { if(e.key === 'Enter') cntin.blur(); });
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+// One wire per bit that survives the shift. When nothing is hovered the whole
+// fan is drawn faintly — but only for masks that fit on a single row, where the
+// uniform diagonal reads as the shift itself instead of as noise.
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  const flow = document.getElementById('flow');
+  if(!canv || !flow) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = flow.offsetWidth, H = flow.offsetHeight;
+  canv.width = W*dpr; canv.height = H*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const cr = canv.getBoundingClientRect();
+  function botPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.bottom - cr.top]; }
+  function topPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.top - cr.top]; }
+
+  function wire(i, t, alpha){
+    const [x1, y1] = botPt(cells.src[i]);
+    const [x2, y2] = topPt(cells.dst[t]);
+    const my = (y1 + y2) / 2;
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = '#8367C7'; ctx.fillStyle = '#8367C7'; ctx.lineWidth = 1.75;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 4, y2 - 7);
+    ctx.lineTo(x2 + 4, y2 - 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  const [s, d] = hovPair();
+  if(s >= 0 && d >= 0){ wire(s, d, 1); return; }
+  if(hovSrc >= 0 || hovDst >= 0) return;   // hovering a dropped / zero-filled bit
+  if(N > COLS) return;                     // wrapped grids: the fan would cross rows
+  for(let i=0; i<N; i++){
+    const t = target(i);
+    if(inRange(t)) wire(i, t, bits[i] ? 0.3 : 0.1);
+  }
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const s of SIZES){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = s.key;
+  btn.textContent = `KSHIFT[LR]${s.name}`;
+  btn.title = `KSHIFTL${s.name} / KSHIFTR${s.name} — shift a ${s.bits}-bit opmask`;
+  btn.addEventListener('click', () => selectSize(s.key));
+  tabBar.appendChild(btn);
+}
+
+// ← / → nudge the shift count, unless a focused control wants the key itself
+window.addEventListener('keydown', e => {
+  if(e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  // Alt+← / Cmd+← are Back — never swallow a modified arrow
+  if(e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  if(e.key === 'ArrowLeft' || e.key === 'ArrowRight'){
+    const n = count + (e.key === 'ArrowRight' ? 1 : -1);
+    if(n < 0 || n > 255) return;
+    changeCount(n);
+    e.preventDefault();
+  }
+});
+window.addEventListener('hashchange', () => {
+  const p = parseHash(location.hash.replace(/^#/, ''));
+  if(!p) return;
+  if(p.key !== SZ.key){ dir = p.dir; selectSize(p.key); }
+  else if(p.dir !== dir){ changeDir(p.dir); }
+});
+window.addEventListener('resize', drawArrows);
+
+// A visibly asymmetric seed so the direction of the shift is unmistakable; the
+// whole 64-bit pattern is laid down so widening the mask keeps revealing bits.
+const SEED = 0x8B3D5A2FC46791E3n;
+for(let i=0; i<64; i++) bits[i] = Number((SEED >> BigInt(i)) & 1n);
+
+const initial = parseHash(location.hash.replace(/^#/, ''));
+dir = initial ? initial.dir : 'l';
+selectSize(initial ? initial.key : 'w');
+</script>
+</body>
+</html>
