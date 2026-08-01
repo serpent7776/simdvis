@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PMOVMSKB / VPMOVMSKB — Interactive Byte Sign-Mask Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 1000px;
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; line-height: 1.6; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 16), 1fr); column-gap: 3px; row-gap: 3px; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 52px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 11px; line-height: 1.2; }
+  /* the byte spelled out in binary — the only thing PMOVMSKB reads is its first
+     character, so bit 7 is drawn solid and the ignored bits are faded */
+  .cell-bin { font-size: 8px; line-height: 1.3; letter-spacing: .2px; opacity: .45; margin-top: 1px; }
+  .cell-bin .msb { font-weight: 700; opacity: 1; text-decoration: underline; text-underline-offset: 1px; }
+
+  /* source byte — amber when its sign bit is set, calm blue when it is not */
+  .src-cell { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .src-cell:hover { background: #B5D4F4; }
+  .src-cell.sign { background: #FDEFD3; border-color: #EF9F27; color: #412402; }
+  .src-cell.sign:hover { background: #FAC775; }
+  .src-cell.lit, .dst-cell.lit { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  /* destination bit inside the general-purpose register */
+  .dst-cell { height: 32px; background: #EAF3DE; border-color: #639922; color: #27500A; cursor: default; }
+  .dst-cell.off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+
+  @media (prefers-color-scheme: dark) {
+    .src-cell { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .src-cell:hover { background: #185FA5; }
+    .src-cell.sign { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .src-cell.sign:hover { background: #86500C; }
+    .dst-cell { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-cell.off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 44px; }
+
+  .flow { position: relative; }
+  /* behind the cells: the wires show in the row gap and pass cleanly under the
+     opaque cell backgrounds */
+  .flow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .flow .reg-grid, .flow .row-lbl { position: relative; z-index: 1; }
+
+  .kres { margin-top: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--text2); line-height: 1.8; }
+  .kres strong { color: var(--text); font-weight: 600; }
+  .kres div { overflow-wrap: anywhere; }
+  /* the bits PMOVMSKB never writes a source bit into — they are cleared */
+  .zx { color: var(--text3); opacity: .6; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  /* keep the selectors together so they wrap as a right-aligned group */
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .srcctl { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .srcctl button {
+    font-size: 10px; font-family: var(--font-mono); padding: 3px 7px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text2); cursor: pointer;
+  }
+  .srcctl button:hover { background: var(--bg3); color: var(--text); }
+
+  .popup {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 170px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+  .quick-grid button.wide { grid-column: 1 / -1; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge ba">r32[i] = src[i] &gt;&gt; 7</span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+    <label class="ctl">
+      Source:
+      <select id="width" onchange="changeWidth(this.value)">
+        <option value="16">XMM (128)</option>
+        <option value="32">YMM (256)</option>
+      </select>
+    </label>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="flow" id="flow">
+    <div class="row-lbl">
+      <span class="badge bb">src</span>
+      <span class="hint" id="src-hint"></span>
+      <span class="srcctl">
+        <button onclick="preset('zero')" title="every byte 0x00 — no sign bits set">0x00</button>
+        <button onclick="preset('ones')" title="every byte 0xFF — every sign bit set">0xFF</button>
+        <button onclick="preset('alt')" title="alternate 0xFF / 0x00 bytes">alt</button>
+        <button onclick="preset('rand')" title="random byte values">rand</button>
+        <button onclick="preset('cmp')" title="random 0x00 / 0xFF bytes — what a PCMPEQB / PCMPGTB result looks like">00/FF</button>
+      </span>
+    </div>
+    <div class="reg-grid" id="src-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge bg">r32</span><span class="hint" id="dst-hint"></span></div>
+    <div class="reg-grid" id="dst-grid"></div>
+    <canvas id="arrows"></canvas>
+  </div>
+  <div class="kres" id="kres"></div>
+
+  <div class="info" id="info">Hover over any byte or bit to follow the sign bit.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" href="https://www.felixcloutier.com/x86/pmovmskb" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction model ──────────────────────────────────────────────────────
+// PMOVMSKB collapses a vector of bytes into a bitmask held in a general-purpose
+// register: one bit per byte, taken from that byte's most significant bit.
+//
+//   r32[i] = src[i] >> 7     for i < N
+//   r32[i] = 0               for the remaining bits
+//
+// Nothing else about a byte matters — 0x80 and 0xFF both produce a 1, 0x7F and
+// 0x00 both produce a 0. That makes it the standard way to get a compare result
+// (PCMPEQB / PCMPGTB, whose lanes are 0x00 or 0xFF) out of a vector register and
+// into the scalar world, where TZCNT / BSF turns it into an element index.
+//
+// The destination is always written as a full r32 (and in 64-bit mode the whole
+// r64), so the bits above the source's byte count are cleared, not preserved.
+//
+//   n   : byte count of the source register
+//   isa : ISA level providing this operand form
+const WIDTHS = [
+  { n:16, bits:128, reg:'XMM', isa:'SSE2 / AVX', name:'PMOVMSKB / VPMOVMSKB' },
+  { n:32, bits:256, reg:'YMM', isa:'AVX2',       name:'VPMOVMSKB' },
+];
+const WIDTH_BY_N = {};
+for(const w of WIDTHS) WIDTH_BY_N[w.n] = w;
+
+const COLS = 16;    // bytes per displayed row; a YMM source wraps to two rows
+const MAXN = 32;    // widest source, so byte edits survive an XMM ⇄ YMM switch
+
+// Parse a deep-link hash. The 128-bit form is normally written PMOVMSKB and the
+// 256-bit one only exists VEX-encoded, so the spelling picks the width.
+function parseHash(h){
+  if(h === 'pmovmskb')  return 16;
+  if(h === 'vpmovmskb') return 32;
+  return null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let W;                     // current width descriptor from WIDTHS
+let N;                     // bytes in the source = mask bits written
+let bytes = new Array(MAXN).fill(0);
+let hovSrc = -1, hovDst = -1;
+let cells;                 // { src:[…], dst:[…] } indexed by byte / bit number
+
+// ─── Instruction metadata ───────────────────────────────────────────────────
+function instrName(){ return N === 16 ? 'pmovmskb' : 'vpmovmskb'; }
+function instrTitle(){ return `${W.name} r32, ${W.reg.toLowerCase()}`; }
+
+function instrSubtitle(){
+  const zx = N < 32
+    ? `Bits ${N}–31 of the destination are cleared, `
+    : `The mask fills the whole 32-bit destination, `;
+  return `Take the most significant bit of each of the ${N} bytes in a ${W.bits}-bit ${W.reg} register and pack ` +
+         `them into a general-purpose register: <code>r32[i] = src[i] &gt;&gt; 7</code>. The other seven bits of ` +
+         `a byte are ignored — <code>0x80</code> and <code>0xFF</code> both give a 1, <code>0x7F</code> and ` +
+         `<code>0x00</code> both give a 0. ${zx}and in 64-bit mode bits 32–63 are cleared too. ` +
+         `The classic use is <code>PCMPEQB</code> &rarr; <code>PMOVMSKB</code> &rarr; <code>TZCNT</code>, which turns ` +
+         `a vector compare into the index of the first matching byte. There is no 512-bit form: AVX-512 sends sign ` +
+         `bits to an opmask with <code>VPMOVB2M k1, zmm</code> instead. <code>MOVMSKPS</code> / <code>MOVMSKPD</code> ` +
+         `do the same job one bit per dword / qword.`;
+}
+
+// ─── Mask model ─────────────────────────────────────────────────────────────
+function bit(i){ return (bytes[i] >> 7) & 1; }
+function maskVal(){
+  let v = 0;
+  for(let i=0; i<N; i++) if(bit(i)) v |= (1 << i);
+  return v >>> 0;                     // keep bit 31 out of the sign of a JS int32
+}
+function popcount(){ let n = 0; for(let i=0; i<N; i++) n += bit(i); return n; }
+// TZCNT over the full 32-bit destination: it reports the operand size when the
+// mask is empty, which is 32 even for a 16-byte source.
+function tzcnt(){ for(let i=0; i<N; i++) if(bit(i)) return i; return 32; }
+
+function hex2(v){ return '0x' + v.toString(16).toUpperCase().padStart(2, '0'); }
+function bin8(v){ return v.toString(2).padStart(8, '0'); }
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function selectWidth(n){
+  W = WIDTH_BY_N[n] || WIDTHS[0];
+  N = W.n;
+  hovSrc = hovDst = -1;
+  closePopup();
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+function changeWidth(v){
+  const n = parseInt(v);
+  if(n === N) return;
+  selectWidth(n);
+}
+
+function updatePresentation(){
+  document.title = W.name + ' — Interactive Byte Sign-Mask Visualiser';
+  document.getElementById('width').value = N;
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('isa-badge').textContent = W.isa;
+  document.getElementById('width-badge').textContent = `${W.bits}-bit ${W.reg} → ${N}-bit mask`;
+  document.getElementById('src-hint').textContent =
+    `${W.bits}-bit source (${N} bytes) — click a byte to edit it`;
+  document.getElementById('dst-hint').innerHTML = N < 32
+    ? `one bit per source byte &mdash; bits ${N}..31 are cleared`
+    : `one bit per source byte &mdash; the mask covers all 32 bits`;
+  const name = instrName();
+  if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+// Cells are built once per build() and cached in `cells`. render() updates only
+// data-dependent attributes; refreshHover() updates only hover styling.
+//
+// Both grids are laid out high byte / high bit first, the way the mask is
+// written as a number, so the destination row reads the same way as the
+// hex and binary spelled out underneath it.
+function build(){
+  closePopup();
+  cells = { src: new Array(N), dst: new Array(N) };
+  const srcG = document.getElementById('src-grid');
+  const dstG = document.getElementById('dst-grid');
+  const cols = Math.min(N, COLS);
+  for(const g of [srcG, dstG]){ g.style.setProperty('--cols', cols); g.innerHTML = ''; }
+
+  for(let p=0; p<N; p++){
+    const i = N - 1 - p;
+
+    const s = document.createElement('div');
+    s.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val"></span><span class="cell-bin"></span>`;
+    s._val = s.querySelector('.cell-val');
+    s._bin = s.querySelector('.cell-bin');
+    s.onclick = () => openBytePopup(i, s, srcG);
+    wireHover(s, () => hovSrc = i);
+    srcG.appendChild(s);
+    cells.src[i] = s;
+
+    const d = document.createElement('div');
+    d.innerHTML = `<span class="cell-idx">${i}</span><span class="cell-val"></span>`;
+    d._val = d.querySelector('.cell-val');
+    wireHover(d, () => hovDst = i);
+    dstG.appendChild(d);
+    cells.dst[i] = d;
+  }
+}
+
+// Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
+function wireHover(el, setHov){
+  el.addEventListener('mouseenter', () => { hovSrc = hovDst = -1; setHov(); refreshHover(); drawArrows(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hovSrc = hovDst = -1; refreshHover(); drawArrows(); resetInfo(); });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  for(let i=0; i<N; i++){
+    const v = bytes[i], b = bit(i), s = bin8(v);
+    const sc = cells.src[i];
+    sc.className = 'cell src-cell' + (b ? ' sign' : '');
+    sc._val.textContent = hex2(v);
+    sc._bin.innerHTML = `<span class="msb">${s[0]}</span>${s.slice(1)}`;
+    sc.title = `src[${i}] = ${hex2(v)} = 0b${s} — bit 7 = ${b} → r32 bit ${i} — click to edit`;
+
+    const dc = cells.dst[i];
+    dc.className = 'cell dst-cell' + (b ? '' : ' off');
+    dc._val.textContent = b;
+    dc.title = `r32 bit ${i} = ${b} — the sign bit of src[${i}] = ${hex2(v)}`;
+  }
+  renderKres();
+  refreshHover();
+}
+
+// The mask as the single scalar value it actually is, zero extension included.
+function renderKres(){
+  const v = maskVal();
+  const hex = v.toString(16).toUpperCase().padStart(8, '0');
+  const bin = v.toString(2).padStart(32, '0');
+  const cut = 32 - N;   // leading positions no source byte can reach
+  const hexCut = cut / 4;
+  const dim = (s, k) => k > 0 ? `<span class="zx">${s.slice(0, k)}</span>${s.slice(k)}` : s;
+
+  const set = popcount(), tz = tzcnt();
+  const parts = [`<strong>${set}</strong> of ${N} sign bits set`];
+  parts.push(tz === 32
+    ? `no bit set &mdash; <code>TZCNT</code> returns 32`
+    : `<code>TZCNT</code> = <strong>${tz}</strong> &rarr; first byte with its sign bit set is src[${tz}]`);
+  if(cut > 0) parts.push(`bits ${N}..31 zeroed`);
+
+  document.getElementById('kres').innerHTML =
+    `<div>r32 = <strong>0x${dim(hex, hexCut)}</strong> &middot; 0b${dim(bin, cut)}` +
+    ` <span class="hint">(bit 31 … bit 0)</span></div>` +
+    `<div class="hint">${parts.join(' &middot; ')}</div>`;
+}
+
+// Every byte feeds exactly one bit of the same index, so one index is lit.
+function hovIdx(){ return hovSrc >= 0 ? hovSrc : hovDst; }
+
+function refreshHover(){
+  const idx = hovIdx();
+  for(let i=0; i<N; i++){
+    const lit = i === idx;
+    cells.src[i].classList.toggle('lit', lit);
+    cells.dst[i].classList.toggle('lit', lit);
+  }
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any byte or bit to follow the sign bit.'; }
+
+function updateInfo(){
+  const i = hovIdx();
+  if(i < 0){ resetInfo(); return; }
+  const v = bytes[i], b = bit(i), s = bin8(v);
+  document.getElementById('info').innerHTML =
+    `<strong>src[${i}] = ${hex2(v)}</strong> = <code>0b<strong>${s[0]}</strong>${s.slice(1)}</code> &rarr; ` +
+    `bit 7 is <strong>${b}</strong>, so <strong>r32 bit ${i} = ${b}</strong> ` +
+    `<span class="hint">(mask bit value ${b ? '0x' + ((1 << i) >>> 0).toString(16).toUpperCase() : '0'}; ` +
+    `the low seven bits of the byte are ignored)</span>`;
+}
+
+// ─── Source editing ─────────────────────────────────────────────────────────
+function openBytePopup(i, el, grid){
+  closePopup();
+  const gRect = grid.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup';
+  pop.style.left = (eRect.left + eRect.width/2 - gRect.left) + 'px';
+  // Sit just above the clicked cell's row — a YMM source wraps to two rows, so
+  // anchoring to the whole grid would detach the popup from the byte it edits.
+  pop.style.bottom = (gRect.bottom - eRect.top + 6) + 'px';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = `src[${i}]`;
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = hex2(bytes[i]); inp.placeholder = '0x00 or 0b10011100';
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitByte(i, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitByte(i, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  // Quick values, led by the only edit that changes the mask: flipping bit 7.
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  const quick = [
+    [`flip bit 7 → ${hex2(bytes[i] ^ 0x80)}`, bytes[i] ^ 0x80, true],
+    ['0x00', 0x00], ['0x7F', 0x7F], ['0x80', 0x80], ['0xFF', 0xFF],
+  ];
+  for(const [label, v, wide] of quick){
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    if(wide) btn.className = 'wide';
+    btn.onclick = () => { setByte(i, v); closePopup(); };
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  grid.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && !el.contains(e.target)) closePopup(); }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+// Accept hex (0x9C or bare 9C) and binary (0b10011100) — the binary spelling is
+// the useful one here, since it shows which bit is being changed.
+function parseByte(raw){
+  const s = raw.trim().replace(/[_\s]/g, '');
+  let v;
+  if(/^0b[01]+$/i.test(s)) v = parseInt(s.slice(2), 2);
+  else if(/^(0x)?[0-9a-f]+$/i.test(s)) v = parseInt(s.replace(/^0x/i, ''), 16);
+  else return null;
+  return v >= 0 && v <= 0xFF ? v : null;
+}
+
+function commitByte(i, raw){
+  const v = parseByte(raw);
+  if(v === null) return;
+  setByte(i, v);
+}
+function setByte(i, v){
+  bytes[i] = v;
+  render(); drawArrows(); updateInfo();
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// Presets rewrite the full 32 bytes, so an XMM ⇄ YMM switch stays consistent
+// with what was just asked for rather than revealing stale bytes above byte 15.
+function preset(kind){
+  closePopup();
+  for(let i=0; i<MAXN; i++){
+    if(kind === 'zero')      bytes[i] = 0x00;
+    else if(kind === 'ones') bytes[i] = 0xFF;
+    else if(kind === 'alt')  bytes[i] = (i % 2) ? 0x00 : 0xFF;
+    else if(kind === 'rand') bytes[i] = Math.floor(Math.random() * 256);
+    else if(kind === 'cmp')  bytes[i] = Math.random() < 0.5 ? 0xFF : 0x00;
+  }
+  render(); drawArrows();
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+// Byte i feeds bit i, so every wire is vertical. The hovered one is drawn solid;
+// with a single-row source the whole comb is drawn faintly, which reads as the
+// shape of the mask itself. A wrapped (YMM) source would have to route wires
+// behind the first row of destination bits, so there the comb is left out.
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  const flow = document.getElementById('flow');
+  if(!canv || !flow) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W_ = flow.offsetWidth, H = flow.offsetHeight;
+  canv.width = W_*dpr; canv.height = H*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W_, H);
+
+  const cr = canv.getBoundingClientRect();
+  function botPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.bottom - cr.top]; }
+  function topPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.top - cr.top]; }
+
+  function wire(i, alpha){
+    const [x1, y1] = botPt(cells.src[i]);
+    const [x2, y2] = topPt(cells.dst[i]);
+    const my = (y1 + y2) / 2;
+    ctx.globalAlpha = alpha;
+    const color = bit(i) ? '#EF9F27' : '#888780';
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.75;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    if(N > COLS){
+      // Wrapped grid: byte and bit sit in the same column but a whole row of
+      // cells stands between them, and a straight drop would disappear behind
+      // it. Step into the 3px gutter beside the column and run down there, so
+      // the wire stays visible for its whole length. The last column has no
+      // gutter to its right, so it uses the one on its left.
+      const w = cells.src[i].getBoundingClientRect().width;
+      const lastCol = ((N - 1 - i) % COLS) === COLS - 1;
+      const gx = x1 + (lastCol ? -1 : 1) * (w / 2 + 1.5);
+      ctx.bezierCurveTo(x1, y1 + 12, gx, y1 + 4, gx, y1 + 16);
+      ctx.lineTo(gx, y2 - 16);
+      ctx.bezierCurveTo(gx, y2 - 4, x2, y2 - 12, x2, y2);
+    } else {
+      ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 4, y2 - 7);
+    ctx.lineTo(x2 + 4, y2 - 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  const idx = hovIdx();
+  if(idx >= 0){ wire(idx, 1); return; }
+  // One hovered wire can afford the detour above; sixteen of them running down
+  // every gutter at once would just be noise, so the comb stays single-row only.
+  if(N > COLS) return;
+  for(let i=0; i<N; i++) wire(i, bit(i) ? 0.32 : 0.12);
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+window.addEventListener('hashchange', () => {
+  const n = parseHash(location.hash.replace(/^#/, ''));
+  if(n && n !== N) selectWidth(n);
+});
+window.addEventListener('resize', drawArrows);
+
+// A seed with a mixed bag of sign bits, so the mask is neither empty nor full
+// and values like 0x7F / 0x80 sit next to each other as a reminder of how little
+// of a byte the instruction looks at.
+const SEED = [0x8C, 0x2B, 0xFF, 0x00, 0x7F, 0x80, 0x41, 0xD3,
+              0x05, 0x9A, 0x6E, 0xF1, 0x30, 0xB7, 0x7E, 0x82];
+for(let i=0; i<MAXN; i++) bytes[i] = SEED[(i * 7 + (i >> 4)) % SEED.length];
+
+const initial = parseHash(location.hash.replace(/^#/, ''));
+selectWidth(initial || 16);
+</script>
+</body>
+</html>
