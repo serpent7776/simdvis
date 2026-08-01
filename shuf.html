@@ -143,7 +143,42 @@
 
   .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
   .hint { font-size: 11px; color: var(--text3); }
-  .imm-lbl { font-size: 12px; color: var(--text2); font-family: var(--font-mono); margin-top: 6px; text-align: center; }
+  .imm-lbl {
+    font-size: 11px; color: var(--text3); font-family: var(--font-mono); margin-top: 8px;
+    display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;
+  }
+  .imm-lbl strong { color: var(--text2); font-weight: 500; }
+  .imm-input {
+    font-family: var(--font-mono); font-size: 11px; width: 84px;
+    padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+  }
+  .imm-input:focus { outline: none; border-color: #EF9F27; box-shadow: 0 0 0 2px rgba(239,159,39,.35); }
+  .imm-input.bad { border-color: #D94040; color: #D94040; }
+
+  .imm-combo { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+  .imm-caret {
+    font-size: 9px; line-height: 1; padding: 4px 5px; border-radius: 5px; cursor: pointer;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text2);
+  }
+  .imm-caret:hover { background: var(--bg3); color: var(--text); }
+  .imm-menu {
+    position: absolute; top: calc(100% + 5px); left: 0; z-index: 60;
+    background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius);
+    padding: 4px; min-width: 100%; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.16);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .imm-menu[hidden] { display: none; }   /* class rule would otherwise beat UA [hidden] */
+  .imm-menu button {
+    display: flex; justify-content: space-between; gap: 14px; align-items: baseline;
+    font-family: var(--font-mono); font-size: 11px; text-align: left; width: 100%;
+    padding: 4px 7px; border-radius: 4px;
+    border: 0.5px solid transparent; background: none; color: var(--text2); cursor: pointer;
+  }
+  .imm-menu button:hover { background: var(--bg2); color: var(--text); }
+  .imm-menu button.sel { border-color: #EF9F27; color: var(--text); }
+  .imm-menu .mv { color: var(--text3); }
 
   .lane { margin-bottom: 6px; }
   .lane + .lane { padding-top: 10px; border-top: 0.5px dashed var(--border); }
@@ -218,10 +253,16 @@
     <span class="title" id="title"></span>
     <span class="badge bb" id="isa-badge"></span>
     <span class="badge bz" id="width-badge"></span>
-    <label class="ctl">
-      Preset:
-      <select id="preset" onchange="applyPreset(this.value)"></select>
-    </label>
+    <span class="ctl">
+      imm8:
+      <span class="imm-combo" id="imm-combo">
+        <input type="text" id="imm-input" class="imm-input" spellcheck="false" autocomplete="off"
+               title="Any value 0–255 — hex (E4 / 0xE4 / E4h), binary (0b11100100) or decimal (0d228). ↑/↓ steps by 1, shift+↑/↓ by 16.">
+        <button type="button" class="imm-caret" id="imm-caret" aria-expanded="false"
+                title="Named patterns">&#9662;</button>
+        <div class="imm-menu" id="imm-menu" hidden></div>
+      </span>
+    </span>
     <span style="flex:1"></span>
     <label class="ctl">
       Width:
@@ -246,7 +287,7 @@
     <span class="hint" id="imm-hint"></span>
   </div>
   <div class="reg-grid" style="--cols:4;position:relative" id="imm-grid"></div>
-  <div class="imm-lbl" id="imm-lbl"></div>
+  <div class="imm-lbl" id="imm-note"></div>
 
   <div class="info" id="info">Hover over any cell to inspect the shuffle.</div>
 
@@ -282,13 +323,17 @@ const CONFIGS = {
                                      : 'AVX-512F'),
     whichSrc: k => k < 2 ? 1 : 2,
     presetOptions: [
-      ['identity',   'Identity (0xE4)'],
-      ['interleave', 'Interleave (0x88)'],
-      ['swap',       'Swap (0x4E)'],
+      ['identity', 'Identity'],
+      ['evens',    'Evens (src1[0,2], src2[0,2])'],
+      ['odds',     'Odds (src1[1,3], src2[1,3])'],
+      ['swap',     'Swap halves (src1[2,3], src2[0,1])'],
+      ['reverse',  'Reverse (src1[3,2], src2[1,0])'],
     ],
-    presets: { identity:0xE4, interleave:0x88, swap:0x4E },
+    /* SHUFPS can't interleave — dst[0] and dst[1] both come from src1 — so the
+       even/odd pair below is the deinterleave half of that job instead. */
+    presets: { identity:0xE4, evens:0x88, odds:0xDD, swap:0x4E, reverse:0x1B },
     defaultImm: 0xE4,
-    immHint: 'left-click: cycle 0–3 · right-click: edit full imm8 · shared across lanes',
+    immHint: 'left-click: cycle 0–3 · right-click, or the imm8 box at the top: any value 0–255 · shared across lanes',
     srcInit1: (i, lane) => {
       const l = (i / lane) | 0, w = i % lane;
       const v = ((0xA0 | l) << 24) | (w * 0x111111);
@@ -315,15 +360,16 @@ const CONFIGS = {
                                      : 'AVX-512F'),
     whichSrc: k => (k % 2) === 0 ? 1 : 2,
     presetOptions: [
-      ['identity', 'Identity (all 0)'],
-      ['swap',     'Swap (all 1 per lane)'],
-      ['bothhigh', 'Both high (all 1 per lane)'],
-      ['bothlow',  'Both low (all 0 per lane)'],
+      ['identity', 'Identity (src1[0], src2[1])'],
+      ['swap',     'Swap (src1[1], src2[0])'],
+      ['bothlow',  'Both low (src1[0], src2[0])'],
+      ['bothhigh', 'Both high (src1[1], src2[1])'],
     ],
-    /* Preset values are 2-bit "per-lane bases" replicated across all lanes by applyPreset. */
-    presets: { identity:0x0, swap:0x3, bothhigh:0x3, bothlow:0x0 },
-    defaultImm: 0x00,
-    immHint: 'left-click: toggle bit · right-click: edit full imm8 · one bit per output qword',
+    /* Preset values are 2-bit "per-lane bases" replicated across all lanes by applyPreset.
+       bit0 picks the src1 qword for dst[lane·2+0], bit1 the src2 qword for dst[lane·2+1]. */
+    presets: { identity:0b10, swap:0b01, bothlow:0b00, bothhigh:0b11 },
+    defaultImm: 0b10,
+    immHint: 'left-click: toggle bit · right-click, or the imm8 box at the top: any value 0–255 · one bit per output qword',
     srcInit1: (i, lane) => {
       const l = (i / lane) | 0, w = i % lane;
       const tag = (l & 0xF).toString(16).toUpperCase();
@@ -361,6 +407,27 @@ function setCtl(k, v){
   const w = CFG.bitsPerCtl, m = ctlMask();
   imm8 = (imm8 & ~(m << (k*w))) | ((v & m) << (k*w));
 }
+// imm8 text entry. Hex is the default base, matching the rest of the page; 0b and
+// 0d select binary and decimal. A prefixed form whose digits don't fit its base
+// falls through to hex rather than erroring, so every hex spelling still parses:
+// "0b2" is 0x0B2 and "0B" is 0x0B. A bare trailing 'd' can NOT mean decimal — it
+// is a hex digit, so "2D" must stay 0x2D. Returns null for anything outside 0..255.
+function parseImm(raw){
+  const s = String(raw).trim().toLowerCase().replace(/[\s_]/g, '');
+  let v;
+  if(/^0b[01]+$/.test(s))                v = parseInt(s.slice(2), 2);
+  else if(/^0d[0-9]+$/.test(s))          v = parseInt(s.slice(2), 10);
+  else if(/^(0x)?[0-9a-f]+h?$/.test(s))  v = parseInt(s.replace(/^0x/, '').replace(/h$/, ''), 16);
+  else return null;
+  return (v >= 0 && v <= 0xFF) ? v : null;
+}
+
+// Single entry point for "the user picked an arbitrary imm8".
+function setImm(v){
+  imm8 = v & 0xFF;
+  render(); drawAllArrows();
+}
+
 // Number of imm-cell controls displayed.
 function ctlCount(){ return CFG.bitMode === 'bits' ? N : 4; }
 // Which control index governs dst[i]?
@@ -410,6 +477,28 @@ function broadcastLaneBase(base){
   return im & 0xFF;
 }
 
+// The concrete imm8 a named pattern maps to at the current width. In 'bits' mode
+// the stored preset is a per-lane base, so it has to be replicated per lane.
+function presetImm(k){
+  const v = CFG.presets[k];
+  if(v === undefined) return null;
+  return CFG.bitMode === 'bits' ? broadcastLaneBase(v) : v;
+}
+// Bits of imm8 the current instruction/width actually consumes.
+function usedImmMask(){
+  const b = ctlCount() * CFG.bitsPerCtl;
+  return b >= 8 ? 0xFF : (1 << b) - 1;
+}
+// Name of the pattern the current imm8 happens to be, if any. `effective` compares
+// only the consumed bits, so a pattern is still recognised when the bits this width
+// ignores differ — that is what the diagram is actually showing. Callers that carry
+// imm8 across a width change want the strict comparison instead.
+function matchedPreset(effective){
+  const m = effective ? usedImmMask() : 0xFF;
+  for(const [k] of CFG.presetOptions) if((presetImm(k) & m) === (imm8 & m)) return k;
+  return null;
+}
+
 // ─── Init / instruction switching ───────────────────────────────────────────
 function initData(n){
   N = n; LANES = N / LANE;
@@ -426,7 +515,7 @@ function selectInstruction(name){
   imm8 = CFG.defaultImm;
   kmode = 'off';
   hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
-  closePopup();
+  closePopup(); closeImmMenu();
   initData(N);
 
   document.title = CFG.pageTitle;
@@ -437,7 +526,7 @@ function selectInstruction(name){
   document.getElementById('isa-ref').href = CFG.isaRef;
   document.getElementById('imm-hint').textContent = CFG.immHint;
 
-  rebuildPresetOptions();
+  rebuildImmPresets();
   rebuildWidthOptions();
   document.getElementById('kmode').value = 'off';
   document.getElementById('imm-grid').style.setProperty('--cols', ctlCount());
@@ -445,21 +534,51 @@ function selectInstruction(name){
   rebuildLanes();
   syncBadges();
 
-  const def = CFG.presetOptions[0][0];
-  document.getElementById('preset').value = def;
-  applyPreset(def);
+  applyPreset(CFG.presetOptions[0][0]);
 
   if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
 }
 
-function rebuildPresetOptions(){
-  const sel = document.getElementById('preset');
-  sel.innerHTML = '';
-  for(const [val, label] of CFG.presetOptions){
-    const opt = document.createElement('option');
-    opt.value = val; opt.textContent = label;
-    sel.appendChild(opt);
+// The imm8 box is a combobox: free text plus a dropdown of the named patterns,
+// each offered as the literal imm8 it means at the current width. (A native
+// <datalist> is no use here — it filters its options against the text already in
+// the box, which is always the current value.)
+function rebuildImmPresets(){
+  const menu = document.getElementById('imm-menu');
+  menu.innerHTML = '';
+  for(const [key, label] of CFG.presetOptions){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.preset = key;
+    b.innerHTML = `<span>${label}</span><span class="mv">0x${hex2(presetImm(key))}</span>`;
+    b.onclick = () => { closeImmMenu(); applyPreset(key); };
+    menu.appendChild(b);
   }
+  markImmMenu();
+}
+
+function markImmMenu(){
+  const cur = matchedPreset(true);
+  document.querySelectorAll('#imm-menu button').forEach(b =>
+    b.classList.toggle('sel', b.dataset.preset === cur));
+}
+function immMenuOutside(e){
+  if(!document.getElementById('imm-combo').contains(e.target)) closeImmMenu();
+}
+function openImmMenu(){
+  const menu = document.getElementById('imm-menu');
+  if(!menu.hidden) return;
+  markImmMenu();
+  menu.hidden = false;
+  document.getElementById('imm-caret').setAttribute('aria-expanded', 'true');
+  document.addEventListener('mousedown', immMenuOutside);
+}
+function closeImmMenu(){
+  const menu = document.getElementById('imm-menu');
+  if(menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('imm-caret').setAttribute('aria-expanded', 'false');
+  document.removeEventListener('mousedown', immMenuOutside);
 }
 
 function rebuildWidthOptions(){
@@ -476,24 +595,29 @@ function rebuildWidthOptions(){
 }
 
 function applyPreset(k){
-  const v = CFG.presets[k];
-  if(v === undefined) return;
-  imm8 = CFG.bitMode === 'bits' ? broadcastLaneBase(v) : v;
+  const v = presetImm(k);
+  if(v === null) return;
+  imm8 = v;
   closePopup();
   hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1; hovImm = -1;
   render(); drawAllArrows();
+  // Forced: picking from the menu may leave focus in the input (browsers differ on
+  // whether a <button> takes focus on mousedown), and render()'s sync skips it then.
+  syncImmInput(true);
 }
 
 function changeWidth(w){
   const newN = parseInt(w);
   if(newN === N) return;
+  // A named pattern means "this in every lane", so it is re-broadcast for the new
+  // lane count. Any other imm8 is kept verbatim — widening just exposes the high
+  // bits that were already there.
+  const preset = CFG.bitMode === 'bits' ? matchedPreset() : null;
   initData(newN);
   if(CFG.bitMode === 'bits'){
-    // Preserve the per-lane base pattern.
-    const stride = CFG.bitsPerCtl * LANE;
-    const base = imm8 & ((1 << stride) - 1);
-    imm8 = broadcastLaneBase(base);
     document.getElementById('imm-grid').style.setProperty('--cols', ctlCount());
+    if(preset) imm8 = presetImm(preset);
+    rebuildImmPresets();
   }
   rebuildLanes();
   syncBadges();
@@ -641,7 +765,6 @@ function buildImmCells(){
       e.preventDefault();
       const mod = 1 << CFG.bitsPerCtl;
       setCtl(k, (getCtl(k)+1) % mod);
-      document.getElementById('preset').value = '';
       hovImm = k; hovLane = -1; hovSrc1 = -1; hovSrc2 = -1; hovK = -1;
       render(); drawAllArrows(); updateInfo();
     };
@@ -723,10 +846,28 @@ function render(){
       ? `imm8 bit ${k} = ${v} → ${fromSrc}[lane·${LANE}+${v}] feeds dst[${k}]`
       : `imm8 field ${k} = ${v} → ${fromSrc}[lane·${LANE}+${v}] in every lane`;
   }
-  const usedBits = ctlCount() * CFG.bitsPerCtl;
-  const usedNote = CFG.bitMode === 'bits' ? ` (bits [${usedBits-1}:0] used)` : '';
-  document.getElementById('imm-lbl').textContent = 'imm8 = 0x' + hex2(imm8) + usedNote;
+  syncImmInput(false);
   refreshHover();
+}
+
+// Mirror imm8 into the text box and its annotation. Skipped while the box has
+// focus (unless forced) so it doesn't fight the user mid-keystroke.
+function syncImmInput(force){
+  const el = document.getElementById('imm-input');
+  const usedBits = ctlCount() * CFG.bitsPerCtl;
+  const preset = matchedPreset(true);
+  const parts = [
+    `imm8 = <strong>0x${hex2(imm8)}</strong>`,
+    '0b' + imm8.toString(2).padStart(8, '0'),
+    String(imm8),
+  ];
+  if(preset) parts.push('<strong>' + CFG.presetOptions.find(o => o[0] === preset)[1] + '</strong>');
+  if(usedBits < 8) parts.push(`bits [${usedBits-1}:0] used, [7:${usedBits}] ignored`);
+  document.getElementById('imm-note').innerHTML = parts.join(' · ');
+  markImmMenu();
+  if(!force && document.activeElement === el) return;
+  el.value = '0x' + hex2(imm8);
+  el.classList.remove('bad');
 }
 
 function refreshHover(){
@@ -906,6 +1047,7 @@ function openImmPopup(el){
 
   const inp = document.createElement('input');
   inp.type = 'text'; inp.value = '0x' + hex2(imm8); inp.placeholder = '0x00–0xFF';
+  inp.title = 'hex (E4 / 0xE4), binary (0b11100100) or decimal (0d228)';
   inp.onkeydown = e => {
     if(e.key === 'Enter'){ commitImm(inp.value); closePopup(); }
     if(e.key === 'Escape') closePopup();
@@ -937,12 +1079,8 @@ function commitSrc(name, i, raw){
   render(); drawAllArrows();
 }
 function commitImm(raw){
-  const v = parseInt(raw.trim().replace(/^0x/i, ''), 16);
-  if(!isNaN(v) && v >= 0 && v <= 0xFF){
-    imm8 = v;
-    document.getElementById('preset').value = '';
-    render(); drawAllArrows();
-  }
+  const v = parseImm(raw);
+  if(v !== null) setImm(v);
 }
 function closePopup(){
   const p = document.getElementById('active-popup');
@@ -1019,6 +1157,31 @@ function drawArrows(l){
     ctx.fillStyle = color; ctx.fill();
   }
 }
+
+// ─── imm8 text box ──────────────────────────────────────────────────────────
+const immInput = document.getElementById('imm-input');
+immInput.addEventListener('input', () => {
+  const v = parseImm(immInput.value);
+  immInput.classList.toggle('bad', v === null);
+  if(v !== null && v !== imm8) setImm(v);
+});
+immInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){ commitImm(immInput.value); syncImmInput(true); immInput.select(); return; }
+  if(e.key === 'Escape'){ closeImmMenu(); syncImmInput(true); immInput.blur(); return; }
+  if(e.altKey && e.key === 'ArrowDown'){ e.preventDefault(); openImmMenu(); return; }
+  if(e.key === 'ArrowUp' || e.key === 'ArrowDown'){
+    e.preventDefault();
+    const step = (e.shiftKey ? 16 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+    setImm(Math.max(0, Math.min(0xFF, imm8 + step)));   // clamp, never wrap past the ends
+    syncImmInput(true);
+  }
+});
+immInput.addEventListener('focus', () => immInput.select());
+immInput.addEventListener('blur',  () => syncImmInput(true));
+
+document.getElementById('imm-caret').addEventListener('click', () => {
+  if(document.getElementById('imm-menu').hidden) openImmMenu(); else closeImmMenu();
+});
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(t => {
