@@ -109,6 +109,11 @@
   .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .hint { font-size: 11px; color: var(--text3); }
   .gap { height: 44px; }
+  /* between a completed src→r32 pair and the next one. .gap has to stay wide
+     enough to draw arrows in, so proximity alone cannot group a pair; a hairline
+     rule does the separating instead. */
+  .half-gap { height: 30px; display: flex; align-items: center; }
+  .half-gap::before { content: ''; flex: 1; border-top: 0.5px solid var(--border); }
 
   .flow { position: relative; }
   /* behind the cells: the wires show in the row gap and pass cleanly under the
@@ -203,23 +208,19 @@
   <p class="subtitle" id="subtitle"></p>
 
   <div class="flow" id="flow">
-    <div class="row-lbl">
-      <span class="badge bb">src</span>
-      <span class="hint" id="src-hint"></span>
-      <span class="srcctl">
-        <button onclick="preset('zero')" title="every byte 0x00 — no sign bits set">0x00</button>
-        <button onclick="preset('ones')" title="every byte 0xFF — every sign bit set">0xFF</button>
-        <button onclick="preset('alt')" title="alternate 0xFF / 0x00 bytes">alt</button>
-        <button onclick="preset('rand')" title="random byte values">rand</button>
-        <button onclick="preset('cmp')" title="random 0x00 / 0xFF bytes — what a PCMPEQB / PCMPGTB result looks like">00/FF</button>
-      </span>
-    </div>
-    <div class="reg-grid" id="src-grid"></div>
-    <div class="gap"></div>
-    <div class="row-lbl"><span class="badge bg">r32</span><span class="hint" id="dst-hint"></span></div>
-    <div class="reg-grid" id="dst-grid"></div>
+    <div id="rows"></div>
     <canvas id="arrows"></canvas>
   </div>
+
+  <template id="srcctl-tpl">
+    <span class="srcctl">
+      <button onclick="preset('zero')" title="every byte 0x00 — no sign bits set">0x00</button>
+      <button onclick="preset('ones')" title="every byte 0xFF — every sign bit set">0xFF</button>
+      <button onclick="preset('alt')" title="alternate 0xFF / 0x00 bytes">alt</button>
+      <button onclick="preset('rand')" title="random byte values">rand</button>
+      <button onclick="preset('cmp')" title="random 0x00 / 0xFF bytes — what a PCMPEQB / PCMPGTB result looks like">00/FF</button>
+    </span>
+  </template>
   <div class="kres" id="kres"></div>
 
   <div class="info" id="info">Hover over any byte or bit to follow the sign bit.</div>
@@ -334,11 +335,6 @@ function updatePresentation(){
   document.getElementById('subtitle').innerHTML = instrSubtitle();
   document.getElementById('isa-badge').textContent = W.isa;
   document.getElementById('width-badge').textContent = `${W.bits}-bit ${W.reg} → ${N}-bit mask`;
-  document.getElementById('src-hint').textContent =
-    `${W.bits}-bit source (${N} bytes) — click a byte to edit it`;
-  document.getElementById('dst-hint').innerHTML = N < 32
-    ? `one bit per source byte &mdash; bits ${N}..31 are cleared`
-    : `one bit per source byte &mdash; the mask covers all 32 bits`;
   const name = instrName();
   if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
 }
@@ -347,36 +343,83 @@ function updatePresentation(){
 // Cells are built once per build() and cached in `cells`. render() updates only
 // data-dependent attributes; refreshHover() updates only hover styling.
 //
-// Both grids are laid out high byte / high bit first, the way the mask is
-// written as a number, so the destination row reads the same way as the
-// hex and binary spelled out underneath it.
+// Everything is laid out high byte / high bit first, the way the mask is written
+// as a number, so the destination reads the same way as the hex and binary
+// spelled out underneath it.
+//
+// A YMM source is too wide to fit on one line, so it is split into 16-byte
+// blocks — and each block gets its own slice of r32 directly beneath it rather
+// than the whole source stacking above the whole mask. That keeps every wire a
+// short drop into the column below it; the alternative routes byte 15's wire
+// down past the entire r32[31:16] row, where it lands out of sight behind an
+// unrelated cell.
 function build(){
   closePopup();
   cells = { src: new Array(N), dst: new Array(N) };
-  const srcG = document.getElementById('src-grid');
-  const dstG = document.getElementById('dst-grid');
-  const cols = Math.min(N, COLS);
-  for(const g of [srcG, dstG]){ g.style.setProperty('--cols', cols); g.innerHTML = ''; }
+  const rows = document.getElementById('rows');
+  rows.innerHTML = '';
+  const blocks = Math.ceil(N / COLS);
 
-  for(let p=0; p<N; p++){
-    const i = N - 1 - p;
+  for(let b=0; b<blocks; b++){
+    const hi = N - 1 - b*COLS;             // highest byte / bit in this block
+    const lo = Math.max(hi - COLS + 1, 0);
+    if(b > 0) rows.appendChild(div('half-gap'));
 
-    const s = document.createElement('div');
-    s.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val"></span><span class="cell-bin"></span>`;
-    s._val = s.querySelector('.cell-val');
-    s._bin = s.querySelector('.cell-bin');
-    s.onclick = () => openBytePopup(i, s, srcG);
-    wireHover(s, () => hovSrc = i);
-    srcG.appendChild(s);
-    cells.src[i] = s;
+    rows.appendChild(rowLabel('bb', 'src', srcHint(hi, lo, blocks), b === 0));
+    const srcG = regGrid();
+    rows.appendChild(srcG);
+    rows.appendChild(div('gap'));
+    rows.appendChild(rowLabel('bg', 'r32', dstHint(hi, lo, blocks)));
+    const dstG = regGrid();
+    rows.appendChild(dstG);
 
-    const d = document.createElement('div');
-    d.innerHTML = `<span class="cell-idx">${i}</span><span class="cell-val"></span>`;
-    d._val = d.querySelector('.cell-val');
-    wireHover(d, () => hovDst = i);
-    dstG.appendChild(d);
-    cells.dst[i] = d;
+    for(let i=hi; i>=lo; i--){
+      const s = document.createElement('div');
+      s.innerHTML = `<span class="cell-idx">[${i}]</span><span class="cell-val"></span><span class="cell-bin"></span>`;
+      s._val = s.querySelector('.cell-val');
+      s._bin = s.querySelector('.cell-bin');
+      s.onclick = () => openBytePopup(i, s, srcG);
+      wireHover(s, () => hovSrc = i);
+      srcG.appendChild(s);
+      cells.src[i] = s;
+
+      const d = document.createElement('div');
+      d.innerHTML = `<span class="cell-idx">${i}</span><span class="cell-val"></span>`;
+      d._val = d.querySelector('.cell-val');
+      wireHover(d, () => hovDst = i);
+      dstG.appendChild(d);
+      cells.dst[i] = d;
+    }
   }
+}
+
+function div(cls){ const d = document.createElement('div'); d.className = cls; return d; }
+
+// Every block is full: N is 16 or 32 and there is no third width to add, so a
+// block never has to left-align a short tail inside a 16-column track.
+function regGrid(){
+  const g = div('reg-grid');
+  g.style.setProperty('--cols', Math.min(N, COLS));
+  return g;
+}
+
+// The preset buttons act on the whole source, so they ride on the first src row.
+function rowLabel(badgeCls, badgeText, hint, withCtl){
+  const d = div('row-lbl');
+  d.innerHTML = `<span class="badge ${badgeCls}">${badgeText}</span><span class="hint">${hint}</span>`;
+  if(withCtl) d.appendChild(document.getElementById('srcctl-tpl').content.cloneNode(true));
+  return d;
+}
+
+function srcHint(hi, lo, blocks){
+  return blocks > 1
+    ? `bytes ${hi}..${lo} of the ${W.bits}-bit source &mdash; click a byte to edit it`
+    : `${W.bits}-bit source (${N} bytes) &mdash; click a byte to edit it`;
+}
+
+function dstHint(hi, lo, blocks){
+  if(blocks > 1) return `mask bits ${hi}..${lo} &mdash; one per byte directly above`;
+  return `one bit per source byte &mdash; bits ${N}..31 are cleared`;
 }
 
 // Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
@@ -461,8 +504,8 @@ function openBytePopup(i, el, grid){
   const pop = document.createElement('div');
   pop.className = 'popup'; pop.id = 'active-popup';
   pop.style.left = (eRect.left + eRect.width/2 - gRect.left) + 'px';
-  // Sit just above the clicked cell's row — a YMM source wraps to two rows, so
-  // anchoring to the whole grid would detach the popup from the byte it edits.
+  // Sit just above the clicked cell, in the coordinates of the block grid that
+  // owns it — a YMM source has two such grids, at different heights on the page.
   pop.style.bottom = (gRect.bottom - eRect.top + 6) + 'px';
 
   const lbl = document.createElement('div');
@@ -547,10 +590,9 @@ function preset(kind){
 }
 
 // ─── Arrows ─────────────────────────────────────────────────────────────────
-// Byte i feeds bit i, so every wire is vertical. The hovered one is drawn solid;
-// with a single-row source the whole comb is drawn faintly, which reads as the
-// shape of the mask itself. A wrapped (YMM) source would have to route wires
-// behind the first row of destination bits, so there the comb is left out.
+// Byte i feeds bit i, and build() puts them in the same column of adjacent rows,
+// so every wire is a short vertical drop. The hovered one is drawn solid and the
+// rest of the comb faintly, which reads as the shape of the mask itself.
 function drawArrows(){
   const canv = document.getElementById('arrows');
   const flow = document.getElementById('flow');
@@ -576,21 +618,7 @@ function drawArrows(){
     ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.75;
     ctx.beginPath();
     ctx.moveTo(x1, y1);
-    if(N > COLS){
-      // Wrapped grid: byte and bit sit in the same column but a whole row of
-      // cells stands between them, and a straight drop would disappear behind
-      // it. Step into the 3px gutter beside the column and run down there, so
-      // the wire stays visible for its whole length. The last column has no
-      // gutter to its right, so it uses the one on its left.
-      const w = cells.src[i].getBoundingClientRect().width;
-      const lastCol = ((N - 1 - i) % COLS) === COLS - 1;
-      const gx = x1 + (lastCol ? -1 : 1) * (w / 2 + 1.5);
-      ctx.bezierCurveTo(x1, y1 + 12, gx, y1 + 4, gx, y1 + 16);
-      ctx.lineTo(gx, y2 - 16);
-      ctx.bezierCurveTo(gx, y2 - 4, x2, y2 - 12, x2, y2);
-    } else {
-      ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
-    }
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(x2, y2);
@@ -603,9 +631,6 @@ function drawArrows(){
 
   const idx = hovIdx();
   if(idx >= 0){ wire(idx, 1); return; }
-  // One hovered wire can afford the detour above; sixteen of them running down
-  // every gutter at once would just be noise, so the comb stays single-row only.
-  if(N > COLS) return;
   for(let i=0; i<N; i++) wire(i, bit(i) ? 0.32 : 0.12);
 }
 
