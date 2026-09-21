@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PINSRB / PINSRD / PINSRQ — Interactive Insert Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 920px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; font-family: var(--font-mono); }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; line-height: 1.6; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bt { background: #B9E4E2; color: #0A3E3B; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bt { background: #0E4B47; color: #B9E4E2; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); column-gap: 3px; row-gap: 6px; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 46px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+  .cell-val { font-size: 11px; line-height: 1; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+
+  .src-cell  { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .src-cell:hover { background: #B5D4F4; }
+  .src2-cell { background: #DFF1F0; border-color: #2E8B87; color: #0A3E3B; cursor: pointer; }
+  .src2-cell:hover { background: #B9E4E2; }
+  /* not read: the src1 slot that gets overwritten, and the r32 bytes above bits 7:0 */
+  .src-cell.idle, .src2-cell.idle {
+    background: var(--bg2); border-style: dashed; border-color: var(--border2); color: var(--text3);
+  }
+  .src-cell.idle:hover, .src2-cell.idle:hover { background: var(--bg3); }
+  .src-cell.idle .cell-val, .src2-cell.idle .cell-val { text-decoration: line-through; }
+  .src-cell.lit, .src2-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .imm-cell { background: #FAEEDA; border-color: #EF9F27; color: #633806; cursor: pointer; height: 36px; }
+  .imm-cell:hover { background: #FAC775; }
+  .imm-cell.idle { background: var(--bg2); border-style: dashed; border-color: var(--border2); color: var(--text3); }
+  .imm-cell.idle:hover { background: var(--bg3); }
+  .imm-cell.active { box-shadow: 0 0 0 2.5px #EF9F27; }
+
+  /* dst: passed through from src1 (blue) / the inserted element (teal, ringed) */
+  .dst-a   { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: default; }
+  .dst-ins { background: #B9E4E2; border-color: #2E8B87; color: #0A3E3B; cursor: default; box-shadow: 0 0 0 2px #2E8B87; }
+
+  @media (prefers-color-scheme: dark) {
+    .src-cell  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .src-cell:hover { background: #185FA5; }
+    .src2-cell { background: #0E4B47; border-color: #2E8B87; color: #B9E4E2; }
+    .src2-cell:hover { background: #14625D; }
+    .src-cell.idle, .src2-cell.idle { background: var(--bg2); border-color: var(--border2); color: var(--text3); }
+    .src-cell.idle:hover, .src2-cell.idle:hover { background: var(--bg3); }
+    .src-cell.lit, .src2-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .imm-cell { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .imm-cell:hover { background: #854F0B; }
+    .imm-cell.idle { background: var(--bg2); border-color: var(--border2); color: var(--text3); }
+    .imm-cell.idle:hover { background: var(--bg3); }
+    .dst-a   { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .dst-ins { background: #14625D; border-color: #2E8B87; color: #B9E4E2; box-shadow: 0 0 0 2px #2E8B87; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 34px; }
+
+  .flow { position: relative; }
+  .flow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .flow .reg-grid, .flow .row-lbl { position: relative; z-index: 1; }
+
+  .imm-lbl {
+    font-size: 11px; color: var(--text3); font-family: var(--font-mono); margin-top: 8px;
+    display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;
+  }
+  .imm-lbl strong { color: var(--text2); font-weight: 500; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .imm-input {
+    font-family: var(--font-mono); font-size: 11px; width: 84px;
+    padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+  }
+  .imm-input:focus { outline: none; border-color: #EF9F27; box-shadow: 0 0 0 2px rgba(239,159,39,.35); }
+  .imm-input.bad { border-color: #D94040; color: #D94040; }
+
+  .imm-combo { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+  .imm-caret {
+    font-size: 9px; line-height: 1; padding: 4px 5px; border-radius: 5px; cursor: pointer;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text2);
+  }
+  .imm-caret:hover { background: var(--bg3); color: var(--text); }
+  .imm-menu {
+    position: absolute; top: calc(100% + 5px); left: 0; z-index: 60;
+    background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius);
+    padding: 4px; min-width: 100%; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.16);
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 320px; overflow-y: auto;
+  }
+  .imm-menu[hidden] { display: none; }   /* class rule would otherwise beat UA [hidden] */
+  .imm-menu button {
+    display: flex; justify-content: space-between; gap: 14px; align-items: baseline;
+    font-family: var(--font-mono); font-size: 11px; text-align: left; width: 100%;
+    padding: 4px 7px; border-radius: 4px;
+    border: 0.5px solid transparent; background: none; color: var(--text2); cursor: pointer;
+  }
+  .imm-menu button:hover { background: var(--bg2); color: var(--text); }
+  .imm-menu button.sel { border-color: #EF9F27; color: var(--text); }
+  .imm-menu .mv { color: var(--text3); }
+
+  .popup {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 170px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+    <span class="ctl">
+      imm8:
+      <span class="imm-combo" id="imm-combo">
+        <input type="text" id="imm-input" class="imm-input" spellcheck="false" autocomplete="off"
+               title="Any value 0–255 — hex (05 / 0x05 / 05h), binary (0b00000101) or decimal (0d5). ↑/↓ steps by 1, shift+↑/↓ by 16.">
+        <button type="button" class="imm-caret" id="imm-caret" aria-expanded="false"
+                title="Pick a slot">&#9662;</button>
+        <div class="imm-menu" id="imm-menu" hidden></div>
+      </span>
+    </span>
+    <label class="ctl">
+      Form:
+      <select id="form" onchange="changeForm(this.value)">
+        <option value="sse">SSE4.1 (legacy)</option>
+        <option value="vex">VEX (AVX)</option>
+        <option value="evex">EVEX (AVX-512)</option>
+      </select>
+    </label>
+    <label class="ctl">
+      Source:
+      <select id="srckind" onchange="changeSrcKind(this.value)"></select>
+    </label>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="flow" id="flow">
+    <div class="row-lbl"><span class="badge bb">src1</span><span class="hint" id="src1-hint"></span></div>
+    <div class="reg-grid" id="src1-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge bt">src2</span><span class="hint" id="src2-hint"></span></div>
+    <div class="reg-grid" id="src2-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge bg">dst</span><span class="hint" id="dst-hint"></span></div>
+    <div class="reg-grid" id="dst-grid"></div>
+    <canvas id="arrows"></canvas>
+  </div>
+
+  <div style="height:14px"></div>
+  <div class="row-lbl"><span class="badge ba">imm8</span><span class="hint" id="imm-hint"></span></div>
+  <div class="reg-grid" style="--cols:8" id="imm-grid"></div>
+  <div class="imm-lbl" id="imm-note"></div>
+
+  <div class="info" id="info">Hover over any cell to trace the insert.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// PINSR* copies one scalar from a general-purpose register (or memory) into a
+// single element of an XMM register and leaves every other element alone:
+//
+//   SEL      = imm8 & (N-1)            N = elements in 128 bits (16 / 4 / 2)
+//   dst[SEL] = src2
+//   dst[i]   = src1[i]   for i ≠ SEL
+//
+// Only the low log2(N) bits of imm8 are looked at; the rest are ignored, so
+// 0x15 inserts into byte slot 5 just like 0x05 does. With a register source,
+// PINSRB reads only bits 7:0 of the r32 — the upper three bytes are ignored.
+//
+// The legacy (SSE4.1) form is two-operand: xmm1 is read as src1 and written as
+// dst, and bits above 127 of the underlying YMM/ZMM are left untouched. The VEX
+// and EVEX forms take a separate src1 (xmm2) and zero bits MAXVL-1:128 of the
+// destination. There is no wider-than-128-bit form and no write-mask; the EVEX
+// encoding exists so the instruction can reach XMM16–XMM31.
+//
+//   bytes   : element size
+//   regSrc  : general-purpose register form of the source
+//   regBytes: width of that register (PINSRB names a full r32 but uses a byte)
+//   memSrc  : memory form of the source
+//   f512    : AVX-512 feature providing the EVEX form
+const SIZES = [
+  { key:'b', name:'B', bytes:1, elemName:'byte',  regSrc:'r32', regBytes:4, memSrc:'m8',  f512:'AVX-512BW', intrin:'_mm_insert_epi8'  },
+  { key:'d', name:'D', bytes:4, elemName:'dword', regSrc:'r32', regBytes:4, memSrc:'m32', f512:'AVX-512DQ', intrin:'_mm_insert_epi32' },
+  { key:'q', name:'Q', bytes:8, elemName:'qword', regSrc:'r64', regBytes:8, memSrc:'m64', f512:'AVX-512DQ', intrin:'_mm_insert_epi64' },
+];
+const SIZE_BY_KEY = {};
+for(const s of SIZES) SIZE_BY_KEY[s.key] = s;
+
+// Parse a deep-link hash like "pinsrb" / "vpinsrd" → { key:'b', vex:false }, or null.
+function parseHash(h){
+  const m = /^(v?)pinsr(b|d|q)$/.exec(h.toLowerCase());
+  return m ? { key: m[2], vex: m[1] === 'v' } : null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let SZ;                      // current size descriptor from SIZES
+let N;                       // elements in the 128-bit register
+let form = 'sse';            // 'sse' | 'vex' | 'evex'
+let srcKind = 'reg';         // 'reg' | 'mem'
+let imm8 = 0;
+let src1;                    // N hex strings
+let gpr;                     // source register split into elements; gpr[0] is the one inserted
+let hovSrc1 = -1, hovSrc2 = -1, hovDst = -1, hovImm = -1;
+let cells;  // { src1:[…], src2:[…], dst:[…], imm:[…] }
+
+// ─── Instruction metadata ───────────────────────────────────────────────────
+function selBits(){ return Math.log2(N); }
+function sel(){ return imm8 & (N - 1); }
+// The imm8 bit range that forms SEL, written as a field: [3:0] / [1:0] / [0].
+function selRange(){ const b = selBits(); return b > 1 ? `[${b - 1}:0]` : '[0]'; }
+function srcOperand(){ return srcKind === 'reg' ? SZ.regSrc : SZ.memSrc; }
+function mnemonic(){ return (form === 'sse' ? '' : 'V') + 'PINSR' + SZ.name; }
+function instrName(){ return (form === 'sse' ? '' : 'v') + 'pinsr' + SZ.key; }
+function instrTitle(){
+  return form === 'sse'
+    ? `${mnemonic()} xmm1, ${srcOperand()}, imm8`
+    : `${mnemonic()} xmm1, xmm2, ${srcOperand()}, imm8`;
+}
+function instrRef(){ return 'https://www.felixcloutier.com/x86/pinsrb:pinsrd:pinsrq'; }
+function isaLabel(){ return form === 'sse' ? 'SSE4.1' : form === 'vex' ? 'AVX' : SZ.f512; }
+
+function instrSubtitle(){
+  const bits = selBits();
+  const regNote = SZ.key === 'b'
+    ? ` With a register source only bits 7:0 of the <code>r32</code> are read; the other three bytes are ignored.`
+    : ` The whole ${SZ.regBytes * 8}-bit <code>${SZ.regSrc}</code> (or ${SZ.memSrc}) is the inserted value.`;
+  const formNote = form === 'sse'
+    ? ` The legacy form is in place: <code>xmm1</code> is both src1 and dst, and bits MAXVL-1:128 of the underlying YMM/ZMM are left untouched.`
+    : ` The ${form === 'vex' ? 'VEX' : 'EVEX'} form reads src1 from a separate <code>xmm2</code> and zeroes bits MAXVL-1:128 of <code>xmm1</code>; there is no write-mask and no 256/512-bit form${form === 'evex' ? ' — EVEX only adds access to XMM16–XMM31' : ''}.`;
+  const q = SZ.key === 'q' ? ` ${mnemonic()} exists only in 64-bit mode.` : '';
+  return `Copy one ${SZ.elemName} from src2 into ${SZ.elemName} slot <code>SEL = imm8${selRange()}</code> of the destination and keep the other ${N > 2 ? N - 1 : 'one'} from src1: ` +
+         `<code>dst[SEL] = src2</code>, <code>dst[i] = src1[i]</code> for i ≠ SEL. Only the low ${bits} bit${bits > 1 ? 's' : ''} of imm8 matter${bits > 1 ? '' : 's'} — ` +
+         `<code>0x${hex2(N + 1)}</code> picks slot 1 just like <code>0x01</code>.${regNote}${formNote}${q} ` +
+         `Intrinsic: <code>${SZ.intrin}</code>. <code>PEXTR${SZ.name}</code> is the inverse; <code>PINSRW</code> is the SSE2 word-sized sibling.`;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hex2(v){ return v.toString(16).toUpperCase().padStart(2, '0'); }
+function hexW(){ return SZ.bytes * 2; }
+function normHex(raw){
+  const s = raw.trim().replace(/^0x/i, '');
+  if(!/^[0-9a-fA-F]+$/.test(s) || s.length > hexW()) return null;
+  return s.toUpperCase().padStart(hexW(), '0');
+}
+// Widen a byte into a full element by repeating it (0x5A → 0x5A5A5A5A).
+function fillHex(b){ return b.toString(16).toUpperCase().padStart(2, '0').repeat(SZ.bytes); }
+// Elements of the general-purpose source shown: r32 as 4 bytes for PINSRB, else 1.
+function gprCells(){ return srcKind === 'reg' ? SZ.regBytes / SZ.bytes : 1; }
+
+// imm8 text entry. Hex is the default base; 0b and 0d select binary and decimal.
+// A prefixed form whose digits don't fit its base falls through to hex, so every
+// hex spelling still parses ("0b2" is 0x0B2). Returns null for anything outside 0..255.
+function parseImm(raw){
+  const s = String(raw).trim().toLowerCase().replace(/[\s_]/g, '');
+  let v;
+  if(/^0b[01]+$/.test(s))                v = parseInt(s.slice(2), 2);
+  else if(/^0d[0-9]+$/.test(s))          v = parseInt(s.slice(2), 10);
+  else if(/^(0x)?[0-9a-f]+h?$/.test(s))  v = parseInt(s.replace(/^0x/, '').replace(/h$/, ''), 16);
+  else return null;
+  return (v >= 0 && v <= 0xFF) ? v : null;
+}
+
+function setImm(v){
+  imm8 = v & 0xFF;
+  render(); drawArrows(); updateInfo();
+}
+
+// ─── Seed data ──────────────────────────────────────────────────────────────
+// src1 counts up from 0xA0 so every slot is recognisable; the inserted value is
+// 0x1F (repeated to the element width) and the ignored r32 bytes are 0xF1–0xF3.
+function seed1(i){ return fillHex((0xA0 + i) & 0xff); }
+function seedGpr(k){ return k === 0 ? fillHex(0x1F) : fillHex(0xF0 + k); }
+
+function initData(){
+  src1 = Array.from({length:N}, (_,i) => seed1(i));
+  gpr  = Array.from({length:SZ.regBytes / SZ.bytes}, (_,k) => seedGpr(k));
+}
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function selectSize(key, opts){
+  SZ = SIZE_BY_KEY[key] || SIZES[0];
+  N = 16 / SZ.bytes;
+  if(opts && opts.form) form = opts.form;
+  // imm8 is kept verbatim: sel() masks it, exactly as the hardware ignores the high bits.
+  hovSrc1 = hovSrc2 = hovDst = hovImm = -1;
+  closePopup(); closeImmMenu();
+  initData();
+
+  document.getElementById('form').value = form;
+  rebuildSrcKindOptions();
+  rebuildImmPresets();
+  build();
+  updatePresentation();
+  render(); drawArrows();
+  // Forced: a tab click may leave focus in the imm8 box, and render()'s sync skips it then.
+  syncImmInput(true);
+}
+
+function rebuildSrcKindOptions(){
+  const s = document.getElementById('srckind');
+  s.innerHTML = '';
+  for(const [v, label] of [['reg', SZ.regSrc], ['mem', SZ.memSrc]]){
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = label;
+    s.appendChild(opt);
+  }
+  s.value = srcKind;
+}
+
+function changeForm(f){
+  if(f === form) return;
+  form = f;
+  hovSrc1 = hovSrc2 = hovDst = hovImm = -1;
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+function changeSrcKind(k){
+  if(k === srcKind) return;
+  srcKind = k;
+  hovSrc1 = hovSrc2 = hovDst = hovImm = -1;
+  closePopup();
+  build();
+  updatePresentation();
+  render(); drawArrows();
+}
+
+// The imm8 box is a combobox: free text plus a dropdown of the slots. (A native
+// <datalist> is no use here — it filters its options against the text already in
+// the box, which is always the current value.)
+function rebuildImmPresets(){
+  const menu = document.getElementById('imm-menu');
+  menu.innerHTML = '';
+  for(let k = 0; k < N; k++){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.slot = k;
+    b.innerHTML = `<span>slot ${k}</span><span class="mv">0x${hex2(k)}</span>`;
+    b.onclick = () => { closeImmMenu(); setImm(k); syncImmInput(true); };
+    menu.appendChild(b);
+  }
+  markImmMenu();
+}
+function markImmMenu(){
+  document.querySelectorAll('#imm-menu button').forEach(b =>
+    b.classList.toggle('sel', parseInt(b.dataset.slot) === sel()));
+}
+function immMenuOutside(e){
+  if(!document.getElementById('imm-combo').contains(e.target)) closeImmMenu();
+}
+function openImmMenu(){
+  const menu = document.getElementById('imm-menu');
+  if(!menu.hidden) return;
+  markImmMenu();
+  menu.hidden = false;
+  document.getElementById('imm-caret').setAttribute('aria-expanded', 'true');
+  document.addEventListener('mousedown', immMenuOutside);
+}
+function closeImmMenu(){
+  const menu = document.getElementById('imm-menu');
+  if(menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('imm-caret').setAttribute('aria-expanded', 'false');
+  document.removeEventListener('mousedown', immMenuOutside);
+}
+
+function syncBadges(){
+  document.getElementById('isa-badge').textContent = isaLabel();
+  document.getElementById('width-badge').textContent = '128-bit XMM';
+}
+
+// Refresh everything that depends on (SZ, form, srcKind) but not on cell geometry.
+function updatePresentation(){
+  document.title = instrTitle() + ' — Interactive Insert Visualiser';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === SZ.key));
+  document.getElementById('form').value = form;
+  document.getElementById('srckind').value = srcKind;
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('isa-ref').href = instrRef();
+
+  const bits = selBits();
+  document.getElementById('src1-hint').textContent = form === 'sse'
+    ? `xmm1 before the instruction (${N} ${SZ.elemName}s) — every slot except SEL is kept · click a ${SZ.elemName} to edit`
+    : `xmm2 (${N} ${SZ.elemName}s) — every slot except SEL passes through to xmm1 · click a ${SZ.elemName} to edit`;
+  document.getElementById('src2-hint').textContent = srcKind === 'mem'
+    ? `${SZ.memSrc} — one ${SZ.elemName} loaded from memory · click to edit`
+    : gprCells() > 1
+      ? `${SZ.regSrc} shown as ${gprCells()} bytes — only byte [0] (bits 7:0) is inserted, bytes [1]–[${gprCells() - 1}] are ignored · click to edit`
+      : `${SZ.regSrc} — the whole ${SZ.regBytes * 8}-bit register is inserted · click to edit`;
+  document.getElementById('dst-hint').textContent = (form === 'sse' ? 'xmm1 after' : 'xmm1') +
+    ` — dst[SEL] = src2 · dst[i] = src1[i] for i ≠ SEL · ` +
+    (form === 'sse' ? 'bits MAXVL-1:128 are left unchanged' : 'bits MAXVL-1:128 are zeroed');
+  document.getElementById('imm-hint').textContent =
+    `click a bit to toggle · SEL = imm8${selRange()} picks the slot; bits [7:${bits}] are ignored`;
+  syncBadges();
+  // The hash names the size and the legacy/VEX spelling; EVEX shares the V spelling.
+  const cur = parseHash(location.hash.replace(/^#/, ''));
+  if(!cur || cur.key !== SZ.key || cur.vex !== (form !== 'sse')) history.replaceState(null, '', '#' + instrName());
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+// Cells are built once per build() and cached in `cells`. render() updates only
+// data-dependent attributes; refreshHover() updates only hover styling.
+function makeCell(idxLabel){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span>`;
+  el._val = el.lastChild;
+  return el;
+}
+
+function build(){
+  closePopup();
+  cells = { src1: [], src2: [], dst: [], imm: [] };
+
+  const g1 = document.getElementById('src1-grid');
+  g1.style.setProperty('--cols', N);
+  g1.innerHTML = '';
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`);
+    el.onclick = () => openSrcPopup(src1, `src1[${i}]`, i, el, g1);
+    wireHover(el, () => hovSrc1 = i);
+    g1.appendChild(el);
+    cells.src1.push(el);
+  }
+
+  // The source register is drawn in the same column widths as the XMM rows, so a
+  // byte of r32 lines up with a byte of xmm1.
+  const g2 = document.getElementById('src2-grid');
+  g2.style.setProperty('--cols', N);
+  g2.innerHTML = '';
+  const nG = gprCells();
+  for(let k=0; k<nG; k++){
+    const el = makeCell(nG > 1 ? `[${k}]` : srcOperand());
+    el.onclick = () => openSrcPopup(gpr, nG > 1 ? `${SZ.regSrc} byte [${k}]` : srcOperand(), k, el, g2);
+    wireHover(el, () => hovSrc2 = k);
+    g2.appendChild(el);
+    cells.src2.push(el);
+  }
+
+  const dstG = document.getElementById('dst-grid');
+  dstG.style.setProperty('--cols', N);
+  dstG.innerHTML = '';
+  for(let i=0; i<N; i++){
+    const el = makeCell(`[${i}]`);
+    wireHover(el, () => hovDst = i);
+    dstG.appendChild(el);
+    cells.dst.push(el);
+  }
+
+  // imm8 is written out as a number: bit 7 on the left, bit 0 on the right.
+  const immG = document.getElementById('imm-grid');
+  immG.innerHTML = '';
+  for(let b=7; b>=0; b--){
+    const el = makeCell(`bit ${b}`);
+    el.onclick = () => { setImm(imm8 ^ (1 << b)); syncImmInput(true); };
+    wireHover(el, () => hovImm = b);
+    immG.appendChild(el);
+    cells.imm[b] = el;
+  }
+}
+
+// Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
+function wireHover(el, setHov){
+  el.addEventListener('mouseenter', () => { hovSrc1=hovSrc2=hovDst=hovImm=-1; setHov(); refreshHover(); drawArrows(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hovSrc1=hovSrc2=hovDst=hovImm=-1; refreshHover(); drawArrows(); resetInfo(); });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  const s = sel();
+  for(let i=0; i<N; i++){
+    const a = cells.src1[i];
+    a._val.textContent = '0x' + src1[i];
+    a.className = 'cell src-cell' + (i === s ? ' idle' : '');
+    a.title = i === s
+      ? `src1[${i}] = 0x${src1[i]} — slot SEL, overwritten by src2 — click to edit`
+      : `src1[${i}] = 0x${src1[i]} → dst[${i}] unchanged — click to edit`;
+
+    const d = cells.dst[i];
+    if(i === s){
+      d.className = 'cell dst-ins';
+      d._val.textContent = '0x' + gpr[0];
+      d.title = `dst[${i}] = 0x${gpr[0]} — inserted from src2 (SEL = ${s})`;
+    } else {
+      d.className = 'cell dst-a';
+      d._val.textContent = '0x' + src1[i];
+      d.title = `dst[${i}] = 0x${src1[i]} = src1[${i}]`;
+    }
+  }
+
+  const nG = gprCells();
+  for(let k=0; k<nG; k++){
+    const el = cells.src2[k];
+    el._val.textContent = '0x' + gpr[k];
+    el.className = 'cell src2-cell' + (k > 0 ? ' idle' : '');
+    el.title = k === 0
+      ? `${srcOperand()}${nG > 1 ? ' bits 7:0' : ''} = 0x${gpr[0]} → dst[${s}] — click to edit`
+      : `${SZ.regSrc} bits ${k*8+7}:${k*8} = 0x${gpr[k]} — ignored by ${mnemonic()} — click to edit`;
+  }
+
+  const bits = selBits();
+  for(let b=0; b<8; b++){
+    const el = cells.imm[b];
+    const v = (imm8 >> b) & 1;
+    el._val.textContent = v;
+    el.className = 'cell imm-cell' + (b < bits ? '' : ' idle');
+    el.title = b < bits
+      ? `imm8 bit ${b} = ${v} — bit ${b} of SEL`
+      : `imm8 bit ${b} = ${v} — ignored, SEL only uses bits ${selRange()}`;
+  }
+  syncImmInput();
+  refreshHover();
+}
+
+// Mirror imm8 into the text box and its annotation. Skipped while the box has
+// focus (unless forced) so it doesn't fight the user mid-keystroke.
+function syncImmInput(force){
+  const el = document.getElementById('imm-input');
+  const bits = selBits();
+  const parts = [
+    `imm8 = <strong>0x${hex2(imm8)}</strong>`,
+    '0b' + imm8.toString(2).padStart(8, '0'),
+    String(imm8),
+    `SEL = imm8${selRange()} = <strong>${sel()}</strong>`,
+  ];
+  if(imm8 >= N) parts.push(`bits [7:${bits}] set but ignored — same as 0x${hex2(sel())}`);
+  document.getElementById('imm-note').innerHTML = parts.join(' · ');
+  markImmMenu();
+  if(!force && document.activeElement === el) return;
+  el.value = '0x' + hex2(imm8);
+  el.classList.remove('bad');
+}
+
+// Which dst slot is the hovered thing about? -1 when nothing relevant is hovered.
+function hovSlot(){
+  if(hovDst >= 0) return hovDst;
+  if(hovSrc1 >= 0) return hovSrc1;
+  if(hovSrc2 === 0 || (hovImm >= 0 && hovImm < selBits())) return sel();
+  return -1;
+}
+
+function refreshHover(){
+  const s = sel();
+  const slot = hovSlot();
+  const insert = slot === s;
+  for(let i=0; i<N; i++){
+    cells.src1[i].classList.toggle('lit', i === slot && !insert);
+    cells.dst[i].style.boxShadow = i === slot ? `0 0 0 ${i === hovDst ? 3 : 2}px #639922` : '';
+  }
+  for(let k=0; k<cells.src2.length; k++) cells.src2[k].classList.toggle('lit', (k === 0 && insert) || k === hovSrc2);
+  for(let b=0; b<8; b++) cells.imm[b].classList.toggle('active', b === hovImm || (insert && b < selBits() && hovImm < 0));
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to trace the insert.'; }
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  const s = sel();
+  const bits = selBits();
+  const selTxt = `SEL = imm8${selRange()} = ${s}`;
+
+  if(hovSrc1 >= 0){
+    const i = hovSrc1;
+    if(i === s){
+      box.innerHTML = `<strong>src1[${i}] = 0x${src1[i]}</strong> sits in the selected slot (${selTxt}), so it is <strong>overwritten</strong>: dst[${i}] takes src2 = <strong>0x${gpr[0]}</strong> instead.`;
+    } else {
+      box.innerHTML = `<strong>src1[${i}] = 0x${src1[i]}</strong> &rarr; <strong>dst[${i}] = 0x${src1[i]}</strong> — not the selected slot (${selTxt}), so it passes through unchanged.`;
+    }
+    return;
+  }
+
+  if(hovSrc2 >= 0){
+    const k = hovSrc2;
+    if(k === 0){
+      const what = gprCells() > 1 ? `bits 7:0 of ${SZ.regSrc}` : srcOperand();
+      box.innerHTML = `<strong>src2 = 0x${gpr[0]}</strong> (${what}) &rarr; <strong>dst[${s}] = 0x${gpr[0]}</strong> — ${selTxt}, replacing src1[${s}] = 0x${src1[s]}.`;
+    } else {
+      box.innerHTML = `<strong>${SZ.regSrc} bits ${k*8+7}:${k*8} = 0x${gpr[k]}</strong> — <strong>ignored</strong>: ${mnemonic()} reads only bits 7:0 of the register. Nothing here reaches dst.`;
+    }
+    return;
+  }
+
+  if(hovImm >= 0){
+    const b = hovImm, v = (imm8 >> b) & 1;
+    if(b < bits){
+      box.innerHTML = `<strong>imm8 bit ${b} = ${v}</strong> — bit ${b} of the slot index: ${selTxt} &rarr; src2 lands in <strong>dst[${s}]</strong>. Click to toggle.`;
+    } else {
+      box.innerHTML = `<strong>imm8 bit ${b} = ${v}</strong> — <strong>ignored</strong>: ${mnemonic()} only decodes imm8${selRange()}, so the slot stays ${s} whatever this bit is.`;
+    }
+    return;
+  }
+
+  if(hovDst >= 0){
+    const i = hovDst;
+    if(i === s){
+      box.innerHTML = `<strong>dst[${i}] = 0x${gpr[0]}</strong> &larr; <strong>src2</strong> — the inserted ${SZ.elemName} (${selTxt}); src1[${i}] = 0x${src1[i]} is discarded.`;
+    } else {
+      box.innerHTML = `<strong>dst[${i}] = 0x${src1[i]}</strong> &larr; <strong>src1[${i}]</strong> — untouched, only slot ${s} is written.`;
+    }
+    return;
+  }
+
+  resetInfo();
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openSrcPopup(arr, label, i, el, grid){
+  closePopup();
+  const gRect = grid.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup';
+  pop.style.left = (eRect.left + eRect.width/2 - gRect.left) + 'px';
+  pop.style.bottom = (gRect.bottom - eRect.top + 6) + 'px';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = label;
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x' + arr[i]; inp.placeholder = '0x' + '0'.repeat(hexW());
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitSrc(arr, i, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitSrc(arr, i, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  for(const b of [0x00, 0xFF, 0x80, 0x7F]){
+    const btn = document.createElement('button');
+    btn.textContent = '0x' + fillHex(b);
+    btn.onclick = () => { commitSrc(arr, i, fillHex(b)); closePopup(); };
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  grid.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el){ closePopup(); } }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function commitSrc(arr, i, raw){
+  const v = normHex(raw);
+  if(v === null) return;
+  arr[i] = v;
+  render(); drawArrows();
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+// The insert wire src2 → dst[SEL] (teal) is always shown — it is the whole
+// instruction. Hovering a pass-through slot adds its src1[i] → dst[i] wire (blue).
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  const flow = document.getElementById('flow');
+  if(!canv || !flow) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = flow.offsetWidth, H = flow.offsetHeight;
+  canv.width = W*dpr; canv.height = H*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const cr = canv.getBoundingClientRect();
+  function topPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.top - cr.top]; }
+  function botPt(el){ const r = el.getBoundingClientRect(); return [r.left + r.width/2 - cr.left, r.bottom - cr.top]; }
+
+  function wire(from, to, color, width){
+    const [x1, y1] = botPt(from);
+    const [x2, y2] = topPt(to);
+    const my = (y1 + y2) / 2;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - 4, y2 - 7);
+    ctx.lineTo(x2 + 4, y2 - 7);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const s = sel();
+  const slot = hovSlot();
+  wire(cells.src2[0], cells.dst[s], '#2E8B87', slot === s ? 2.5 : 1.75);
+  if(slot >= 0 && slot !== s) wire(cells.src1[slot], cells.dst[slot], '#378ADD', 2);
+}
+
+// ─── imm8 text box ──────────────────────────────────────────────────────────
+const immInput = document.getElementById('imm-input');
+immInput.addEventListener('input', () => {
+  const v = parseImm(immInput.value);
+  immInput.classList.toggle('bad', v === null);
+  if(v !== null && v !== imm8) setImm(v);
+});
+immInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){ const v = parseImm(immInput.value); if(v !== null) setImm(v); syncImmInput(true); immInput.select(); return; }
+  if(e.key === 'Escape'){ closeImmMenu(); syncImmInput(true); immInput.blur(); return; }
+  if(e.altKey && e.key === 'ArrowDown'){ e.preventDefault(); openImmMenu(); return; }
+  if(e.key === 'ArrowUp' || e.key === 'ArrowDown'){
+    e.preventDefault();
+    const step = (e.shiftKey ? 16 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+    setImm(Math.max(0, Math.min(0xFF, imm8 + step)));   // clamp, never wrap past the ends
+    syncImmInput(true);
+  }
+});
+immInput.addEventListener('focus', () => immInput.select());
+immInput.addEventListener('blur',  () => syncImmInput(true));
+
+document.getElementById('imm-caret').addEventListener('click', () => {
+  if(document.getElementById('imm-menu').hidden) openImmMenu(); else closeImmMenu();
+});
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const s of SIZES){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = s.key;
+  btn.textContent = 'PINSR' + s.name;
+  btn.title = `PINSR${s.name} / VPINSR${s.name} — insert one ${s.elemName} from ${s.regSrc}/${s.memSrc}${s.key === 'q' ? ' (64-bit mode only)' : ''}`;
+  btn.addEventListener('click', () => selectSize(s.key));
+  tabBar.appendChild(btn);
+}
+// A hash spelled with the V prefix selects the VEX form (EVEX keeps the same
+// spelling, so an EVEX page is left alone when the hash already says V).
+function applyHash(h){
+  const p = parseHash(h);
+  if(!p) return false;
+  const wantForm = p.vex ? (form === 'sse' ? 'vex' : form) : 'sse';
+  if(SZ && p.key === SZ.key){ changeForm(wantForm); return true; }   // same size: keep the user's edits
+  selectSize(p.key, { form: wantForm });
+  return true;
+}
+window.addEventListener('hashchange', () => applyHash(location.hash.replace(/^#/, '')));
+window.addEventListener('resize', drawArrows);
+
+if(!applyHash(location.hash.replace(/^#/, ''))) selectSize('b');
+</script>
+</body>
+</html>
