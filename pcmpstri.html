@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCMPISTRI / PCMPESTRI — Interactive String Compare Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 1000px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; font-family: var(--font-mono); }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; line-height: 1.6; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bt { background: #B9E4E2; color: #0A3E3B; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bt { background: #0E4B47; color: #B9E4E2; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  /* Every row of the picture is a lane over the same column template, so the
+     matrix columns line up with the xmm2 elements above and the result bits
+     below. Column 1 is the gutter that holds the xmm1 elements. */
+  .lane {
+    display: grid;
+    grid-template-columns: var(--gut, 104px) repeat(var(--cols, 16), 1fr);
+    column-gap: 3px; row-gap: 5px; align-items: center;
+  }
+  .head-lane { margin-bottom: 4px; }
+  .head-lane > :nth-child(2) { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 48px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+  .cell-val { font-size: 11px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+  .cell-ch  { font-size: 10px; line-height: 1.15; opacity: .75; overflow: hidden; max-width: 100%; white-space: nowrap; }
+
+  .src2-cell { background: #DFF1F0; border-color: #2E8B87; color: #0A3E3B; cursor: pointer; }
+  .src2-cell:hover { background: #B9E4E2; }
+  /* past the end of the string: the element is present but invalid */
+  .src2-cell.idle {
+    background: var(--bg2); border-style: dashed; border-color: var(--border2); color: var(--text3);
+  }
+  .src2-cell.idle:hover { background: var(--bg3); }
+  .src2-cell.lit { box-shadow: 0 0 0 2px #2E8B87; }
+
+  /* xmm1 sits in the gutter, one element per matrix row, laid out on one line */
+  .side-cell {
+    display: flex; align-items: center; gap: 5px; justify-content: flex-start;
+    padding: 0 6px; border-radius: 5px; border: 0.5px solid;
+    font-family: var(--font-mono); font-size: 10px; height: var(--mh, 26px);
+    background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer;
+    overflow: hidden; white-space: nowrap;
+  }
+  .side-cell:hover { background: #B5D4F4; }
+  .side-cell .si { opacity: .55; }
+  .side-cell .sc { opacity: .75; margin-left: auto; }
+  .side-cell.idle { background: var(--bg2); border-style: dashed; border-color: var(--border2); color: var(--text3); }
+  .side-cell.idle:hover { background: var(--bg3); }
+  .side-cell.lit { box-shadow: 0 0 0 2px #378ADD; }
+  /* ranges reads xmm1 as low/high pairs, so the pairs get a little air below them */
+  .pair-end { margin-bottom: 6px; }
+
+  /* one BoolRes[i][j] */
+  .mcell {
+    display: flex; align-items: center; justify-content: center;
+    height: var(--mh, 26px); border-radius: 4px; border: 0.5px solid;
+    font-family: var(--font-mono); font-size: 10px; cursor: default;
+    background: var(--bg2); border-color: var(--border); color: var(--text3);
+    transition: background .1s, box-shadow .1s, opacity .1s;
+  }
+  .mcell.one  { background: #EAF3DE; border-color: #639922; color: #27500A; font-weight: 600; }
+  .mcell.forced { border-style: dashed; }
+  .mcell.off { opacity: .28; }          /* not read by this aggregation */
+  .mcell.lit { box-shadow: 0 0 0 2px #EF9F27; }
+  .mcell.band { background: #FAEEDA; }  /* feeds the hovered result bit */
+  .mcell.band.one { background: #FAC775; border-color: #EF9F27; color: #412402; }
+
+  .imm-cell { background: #FAEEDA; border-color: #EF9F27; color: #633806; cursor: pointer; }
+  .imm-cell:hover { background: #FAC775; }
+  /* .idle marks the reserved bit: still togglable, but nothing reads it */
+  .imm-cell.idle { background: var(--bg2); border-style: dashed; border-color: var(--border2); color: var(--text3); }
+  .imm-cell.idle:hover { background: var(--bg3); }
+  .imm-cell.lit { box-shadow: 0 0 0 2px #EF9F27; }
+
+  .bit-cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 32px; border-radius: 5px; border: 0.5px solid;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    background: var(--bg2); border-color: var(--border2); color: var(--text3);
+    cursor: default; min-width: 0;
+  }
+  .bit-cell.one { background: #EAF3DE; border-color: #639922; color: #27500A; }
+  .bit-cell.flip { border-color: #EF9F27; }   /* polarity changed this bit */
+  .bit-cell.lit { box-shadow: 0 0 0 2px #639922; }
+  .bit-cell.pick { box-shadow: 0 0 0 2.5px #EF9F27; }
+
+  .lane-lbl { font-size: 11px; font-family: var(--font-mono); color: var(--text2); text-align: right; padding-right: 8px; overflow: hidden; white-space: nowrap; }
+
+  .ecx-chip {
+    /* min-width:0 keeps the chip from widening its own 1fr track — without it
+       this lane's columns stop matching the IntRes2 lane above and the arrow
+       lands next to the bit instead of under it. */
+    justify-self: center; white-space: nowrap; min-width: 0;
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+    padding: 5px 10px; border-radius: 6px;
+    background: #EAF3DE; border: 0.5px solid #639922; color: #27500A;
+  }
+  .ecx-chip.none { background: var(--bg2); border-color: var(--border2); color: var(--text2); justify-self: start; }
+
+  @media (prefers-color-scheme: dark) {
+    .side-cell { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .side-cell:hover { background: #185FA5; }
+    .src2-cell { background: #0E4B47; border-color: #2E8B87; color: #B9E4E2; }
+    .src2-cell:hover { background: #14625D; }
+    .src2-cell.idle, .side-cell.idle { background: var(--bg2); border-color: var(--border2); color: var(--text3); }
+    .src2-cell.idle:hover, .side-cell.idle:hover { background: var(--bg3); }
+    .imm-cell { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .imm-cell:hover { background: #854F0B; }
+    .imm-cell.idle { background: var(--bg2); border-color: var(--border2); color: var(--text3); }
+    .imm-cell.idle:hover { background: var(--bg3); }
+    .mcell.one { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .mcell.band { background: #4A2C05; }
+    .mcell.band.one { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .bit-cell.one { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .ecx-chip { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .ecx-chip.none { background: var(--bg2); border-color: var(--border2); color: var(--text2); }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 34px; }
+  .gap-sm { height: 16px; }
+
+  .flow { position: relative; }
+  .flow canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .flow .lane { position: relative; z-index: 1; }
+
+  /* imm8 field selectors — the four things the control byte actually encodes */
+  .fields {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 8px 12px; margin-bottom: 1rem;
+  }
+  .fields .sep { width: 1px; align-self: stretch; background: var(--border); }
+  .field-notes { margin: -0.5rem 0 1rem; padding: 0 2px; font-size: 11px; color: var(--text2); line-height: 1.6; }
+  .field-notes code { font-family: var(--font-mono); color: var(--text); }
+
+  .kres { margin-top: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text2); line-height: 1.9; }
+  .kres strong { color: var(--text); font-weight: 600; }
+  .kres div { overflow-wrap: anywhere; }
+  .flag {
+    display: inline-block; font-family: var(--font-mono); font-size: 11px;
+    padding: 2px 7px; border-radius: 4px; margin-right: 5px;
+    background: var(--bg2); border: 0.5px solid var(--border2); color: var(--text3);
+  }
+  .flag.set { background: #EAF3DE; border-color: #639922; color: #27500A; font-weight: 600; }
+  @media (prefers-color-scheme: dark) { .flag.set { background: #27500A; border-color: #639922; color: #C0DD97; } }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .str-input, .len-input {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 2px 6px; border-radius: 5px;
+    border: 0.5px solid var(--border2); background: var(--bg); color: var(--text);
+  }
+  .str-input { width: 190px; max-width: 100%; min-width: 0; }
+  .len-input { width: 48px; }
+  .len-input.bad { border-color: #D94040; color: #D94040; }
+
+  .btn {
+    font-size: 11px; font-family: var(--font-sans); padding: 3px 9px; border-radius: 5px;
+    border: 0.5px solid var(--border2); background: var(--bg); color: var(--text2); cursor: pointer;
+  }
+  .btn:hover { background: var(--bg3); color: var(--text); }
+
+  .imm-input {
+    font-family: var(--font-mono); font-size: 11px; width: 84px;
+    padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+  }
+  .imm-input:focus { outline: none; border-color: #EF9F27; box-shadow: 0 0 0 2px rgba(239,159,39,.35); }
+  .imm-input.bad { border-color: #D94040; color: #D94040; }
+
+  .imm-combo { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+  .imm-caret {
+    font-size: 9px; line-height: 1; padding: 4px 5px; border-radius: 5px; cursor: pointer;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text2);
+  }
+  .imm-caret:hover { background: var(--bg3); color: var(--text); }
+  .imm-menu {
+    position: absolute; top: calc(100% + 5px); right: 0; z-index: 60;
+    background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius);
+    /* the descriptions are long: size to the content, but wrap rather than run
+       off the viewport. width:max-content is needed because the containing
+       block is the little combo, so shrink-to-fit would squeeze the menu. */
+    padding: 4px; min-width: 100%; width: max-content;
+    /* right-aligned to the combo, which sits at the card's right padding edge:
+       40px of body+card padding, plus slack for a scrollbar */
+    max-width: min(calc(100vw - 56px), 460px);
+    box-shadow: 0 4px 16px rgba(0,0,0,.16);
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 340px; overflow-y: auto;
+  }
+  .imm-menu[hidden] { display: none; }   /* class rule would otherwise beat UA [hidden] */
+  .imm-menu button {
+    /* narrow viewports drop the summary onto its own line rather than
+       squeezing both columns into an unreadable pair of ribbons */
+    display: flex; justify-content: space-between; gap: 2px 16px; align-items: baseline;
+    flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: 11px; text-align: left; width: 100%;
+    padding: 4px 7px; border-radius: 4px;
+    border: 0.5px solid transparent; background: none; color: var(--text2); cursor: pointer;
+  }
+  .imm-menu button > span:first-child { flex: 1 1 auto; min-width: 0; }
+  .imm-menu button:hover { background: var(--bg2); color: var(--text); }
+  .imm-menu button.sel { border-color: #EF9F27; color: var(--text); }
+  .imm-menu .mv { color: var(--text3); }
+
+  .popup {
+    position: absolute; z-index: 50;
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px;
+    display: flex; flex-direction: column; gap: 5px; min-width: 180px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb">SSE4.2</span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+    <span class="ctl">
+      imm8:
+      <span class="imm-combo" id="imm-combo">
+        <input type="text" id="imm-input" class="imm-input" spellcheck="false" autocomplete="off"
+               title="Any value 0–255 — hex (0C / 0x0C / 0Ch), binary (0b00001100) or decimal (0d12). ↑/↓ steps by 1, shift+↑/↓ by 16.">
+        <button type="button" class="imm-caret" id="imm-caret" aria-expanded="false"
+                title="Common control bytes">&#9662;</button>
+        <div class="imm-menu" id="imm-menu" hidden></div>
+      </span>
+    </span>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="fields">
+    <label class="ctl">imm8[1:0]
+      <select id="f-fmt" onchange="setField(0, 3, +this.value)"></select>
+    </label>
+    <label class="ctl">imm8[3:2]
+      <select id="f-agg" onchange="setField(2, 3, +this.value)"></select>
+    </label>
+    <label class="ctl">imm8[5:4]
+      <select id="f-pol" onchange="setField(4, 3, +this.value)"></select>
+    </label>
+    <label class="ctl">imm8[6]
+      <select id="f-out" onchange="setField(6, 1, +this.value)"></select>
+    </label>
+    <span class="sep" id="len-sep"></span>
+    <span class="ctl" id="len-ctl">
+      lengths:
+      <label class="ctl" title="length of xmm1 — the absolute value is used and saturates at the element count"><span id="len1-lbl">EAX</span>
+        <input type="text" id="len1" class="len-input" spellcheck="false" autocomplete="off"></label>
+      <label class="ctl" title="length of xmm2/m128 — the absolute value is used and saturates at the element count"><span id="len2-lbl">EDX</span>
+        <input type="text" id="len2" class="len-input" spellcheck="false" autocomplete="off"></label>
+    </span>
+    <button type="button" class="btn" id="example" style="margin-left:auto"
+            title="Reload both operands with data that suits the selected aggregation">Load example</button>
+  </div>
+  <div class="field-notes" id="field-notes"></div>
+
+  <div class="flow" id="flow">
+    <div class="lane head-lane">
+      <div class="row-lbl"><span class="badge bt">xmm2/m128</span></div>
+      <div>
+        <span class="hint" id="src2-hint"></span>
+        <label class="ctl" style="margin-left:auto">haystack <input type="text" id="str2" class="str-input" spellcheck="false" autocomplete="off"
+               title="The operand as text — typing here replaces it. Elements that are not printable ASCII show as '.', and typing then commits that '.'"></label>
+      </div>
+    </div>
+    <div class="lane" id="src2-lane"></div>
+
+    <div class="gap-sm"></div>
+
+    <div class="lane head-lane">
+      <div class="row-lbl"><span class="badge bb">xmm1</span></div>
+      <div>
+        <span class="hint" id="src1-hint"></span>
+        <label class="ctl" style="margin-left:auto">needle <input type="text" id="str1" class="str-input" spellcheck="false" autocomplete="off"
+               title="The operand as text — typing here replaces it. Elements that are not printable ASCII show as '.', and typing then commits that '.'"></label>
+      </div>
+    </div>
+    <div class="lane" id="mat"></div>
+    <div class="lane head-lane" style="margin-top:6px">
+      <div></div>
+      <div><span class="hint" id="agg-hint"></span></div>
+    </div>
+
+    <div class="gap-sm"></div>
+    <div class="lane" id="r1-lane"></div>
+    <div class="lane" id="r2-lane"></div>
+    <div class="gap"></div>
+    <div class="lane" id="ecx-lane"></div>
+    <canvas id="arrows"></canvas>
+  </div>
+
+  <div style="height:14px"></div>
+  <div class="row-lbl"><span class="badge ba">imm8</span><span class="hint" id="imm-hint"></span></div>
+  <div class="lane" id="imm-lane" style="--gut:0px;--cols:8;margin-top:4px"></div>
+  <div class="kres" id="kres"></div>
+
+  <div class="info" id="info">Hover over an element, a matrix cell or a result bit to trace the comparison.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// PCMPISTRI / PCMPESTRI compare two strings held in XMM registers and return a
+// single index in ECX. Both run the same four-stage pipeline (SDM §4.1):
+//
+//   1. compare   every xmm1 element against every xmm2 element
+//                  BoolRes[i][j], i over xmm1, j over xmm2/m128 — note this is
+//                  the transpose of the SDM's BoolRes[reg/mem index, reg index],
+//                  because here i is the matrix row and j the column
+//   2. aggregate the matrix into IntRes1, one bit per xmm2 element, the way
+//                imm8[3:2] says (equal any / ranges / equal each / equal ordered)
+//   3. polarity  imm8[5:4] optionally complements IntRes1 into IntRes2, either
+//                every bit or only the bits of valid xmm2 elements
+//   4. output    ECX = index of the lowest (imm8[6]=0) or highest (imm8[6]=1)
+//                set bit of IntRes2, or the element count when IntRes2 is zero
+//
+// xmm1 is the pattern (the character set, the range pairs, the needle) and
+// xmm2/m128 is the data being scanned — only the second operand may come from
+// memory, and the index that comes back is an index into it.
+//
+// The two forms differ only in where the string lengths come from:
+//   PCMPISTRI  implicit — each string ends at its first null element
+//   PCMPESTRI  explicit — EAX/RAX holds the length of xmm1, EDX/RDX that of
+//              xmm2; the absolute value is used and saturates at the element
+//              count, and null elements are ordinary data
+//
+// Elements past the end of a string are "invalid" and their comparisons are
+// forced to a fixed result instead of being computed (SDM Table 4-7, FORCE
+// below) — that is what makes equal-ordered work as a substring search.
+//
+// PCMPISTRM / PCMPESTRM are the same instruction with a mask in XMM0 as the
+// result instead of an index; imm8[6] then picks a bit mask or an expanded
+// byte/word mask rather than the search direction.
+const INSTRS = [
+  { key:'istri', name:'PCMPISTRI', explicit:false,
+    intrin:'_mm_cmpistri', ref:'https://www.felixcloutier.com/x86/pcmpistri' },
+  { key:'estri', name:'PCMPESTRI', explicit:true,
+    intrin:'_mm_cmpestri', ref:'https://www.felixcloutier.com/x86/pcmpestri' },
+];
+const INSTR_BY_KEY = {};
+for(const t of INSTRS) INSTR_BY_KEY[t.key] = t;
+
+// imm8 fields. The names are the SDM's.
+const FMT = [
+  { label:'unsigned bytes', short:'ubyte', bytes:1 },
+  { label:'unsigned words', short:'uword', bytes:2 },
+  { label:'signed bytes',   short:'sbyte', bytes:1 },
+  { label:'signed words',   short:'sword', bytes:2 },
+];
+const AGG = [
+  { label:'equal any',     short:'equal any',     desc:'set membership — is xmm2[j] any of the valid xmm1 elements? (like strpbrk / strspn)' },
+  { label:'ranges',        short:'ranges',        desc:'character classes — does xmm2[j] fall in any valid low..high pair from xmm1, bounds inclusive? (e.g. a-z, 0-9)' },
+  { label:'equal each',    short:'equal each',    desc:'string compare — does xmm2[j] equal xmm1[j] at the same position? (like strcmp / memcmp)' },
+  { label:'equal ordered', short:'equal ordered', desc:'substring search — does xmm1 start at xmm2[j]? A match cut off by the end of the register also counts (partial match). (like strstr)' },
+];
+const POL = [
+  { label:'positive',        short:'+',          desc:'IntRes2 = IntRes1, unchanged — look for matches' },
+  { label:'negative',        short:'−',          desc:'IntRes2 = ~IntRes1 — every bit is flipped, including those past the end of xmm2 (which usually become 1)' },
+  { label:'masked positive', short:'+ (masked)', desc:'identical to positive — the mask only limits which bits get flipped, and nothing is flipped here' },
+  { label:'masked negative', short:'− (masked)', desc:'flip only the bits of valid xmm2 elements — bits past the end of xmm2 keep their IntRes1 value' },
+];
+const OUT = [
+  { label:'least significant index', short:'lowest bit' },
+  { label:'most significant index',  short:'highest bit' },
+];
+
+// SDM Table 4-7 — what BoolRes[i][j] becomes when either element is invalid,
+// indexed [aggregation][case] with case 0 = both invalid, 1 = only xmm1
+// invalid, 2 = only xmm2 invalid. Both valid is computed, never forced.
+const FORCE = [
+  [0, 0, 0],   // equal any
+  [0, 0, 0],   // ranges
+  [1, 0, 0],   // equal each     — two ended strings compare equal
+  [1, 1, 0],   // equal ordered  — a needle that ran out still matches
+];
+
+// Data that shows off each aggregation, used by the Load example button and at
+// start-up. `a` goes into xmm1 (the pattern), `b` into xmm2 (the data).
+const EXAMPLES = [
+  { a:'aeiou',         b:'strength in me' },  // equal any     — vowels, first at 3
+  { a:'azAZ09',        b:'Hello, 42 World!' },// ranges        — three range pairs
+  { a:'in the middle', b:'in the Middle' },   // equal each    — differs at 7, inside both widths
+  { a:'the',           b:'in the middle' },   // equal ordered — substring search
+];
+
+// Common control bytes worth having one click away.
+const PRESETS = [
+  { v:0x00, use:'strchr — first byte in a set' },
+  { v:0x04, use:'first byte inside a range pair' },
+  { v:0x08, use:'position-wise equality' },
+  { v:0x0C, use:'strstr — substring search' },
+  { v:0x14, use:'first byte outside the ranges' },
+  { v:0x18, use:'strcmp — first difference' },
+  { v:0x38, use:'first difference, or where xmm1 ends' },
+  { v:0x40, use:'strrchr — last byte in a set' },
+  { v:0x01, use:'wide chars — first word in a set' },
+  { v:0x0D, use:'wide chars — substring search' },
+];
+
+// Parse a deep-link hash like "pcmpistri" → 'istri', or null.
+function parseHash(h){
+  const m = /^pcmp([ei])stri$/.exec(h.toLowerCase());
+  return m ? (m[1] === 'e' ? 'estri' : 'istri') : null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let IN;                       // current entry from INSTRS
+let imm8 = 0x0C;              // equal ordered, unsigned bytes, positive, first match
+let len1 = 3, len2 = 13;      // EAX / EDX, PCMPESTRI only — kept as written, even if wild
+// Operand data is kept per element width so switching bytes ↔ words never
+// reinterprets (and scrambles) what the user typed.
+const store = {
+  1: { s1:[], s2:[] },
+  2: { s1:[], s2:[] },
+};
+let hov = { kind:'', i:-1, j:-1 };   // kind: src1 | src2 | mat | r1 | r2 | imm
+let cells;                    // { src1:[], src2:[], mat:[[]], r1:[], r2:[], imm:[] }
+let R;                        // last compute() result
+
+// ─── Instruction metadata ───────────────────────────────────────────────────
+function fmt(){ return FMT[imm8 & 3]; }
+function elemBytes(){ return fmt().bytes; }
+function N(){ return 16 / elemBytes(); }
+function elemBits(){ return elemBytes() * 8; }
+function elemName(){ return elemBytes() === 1 ? 'byte' : 'word'; }
+function isSigned(){ return (imm8 & 2) !== 0; }
+function agg(){ return (imm8 >> 2) & 3; }
+function pol(){ return (imm8 >> 4) & 3; }
+function msbSel(){ return (imm8 >> 6) & 1; }
+function resBit(){ return (imm8 >> 7) & 1; }   // reserved, must be 0
+function s1(){ return store[elemBytes()].s1; }
+function s2(){ return store[elemBytes()].s2; }
+
+function instrTitle(){ return IN.name + ' xmm1, xmm2/m128, imm8'; }
+function immSummary(){
+  return `${fmt().short} · ${AGG[agg()].short} · ${POL[pol()].short} · ${OUT[msbSel()].short}`;
+}
+
+function instrSubtitle(){
+  const lenTxt = IN.explicit
+    ? `Both lengths are explicit: <code>EAX</code> holds the length of xmm1 and <code>EDX</code> that of xmm2/m128 (<code>RAX</code>/<code>RDX</code> with REX.W). ` +
+      `The absolute value is used and saturates at ${N()}, so <code>EAX = -3</code> behaves exactly like <code>EAX = 3</code> and anything at or past ${N()} means "the whole register"; null elements are ordinary data.`
+    : `Both lengths are implicit: each string ends at its first null ${elemName()}, and everything from there on is invalid.`;
+  return `Compare every ${elemName()} of <code>xmm1</code> against every ${elemName()} of <code>xmm2/m128</code>, aggregate that ${N()}×${N()} matrix into ` +
+         `<code>IntRes1</code> the way <code>imm8[3:2]</code> says, complement it into <code>IntRes2</code> per <code>imm8[5:4]</code>, and return the index of its ` +
+         `${msbSel() ? 'highest' : 'lowest'} set bit in <code>ECX</code> — or <code>${N()}</code> when no bit is set. ` +
+         `<strong>xmm1 is the pattern</strong> (character set, range pairs or needle) and <strong>xmm2/m128 is the data</strong>; the index counts elements of xmm2. ${lenTxt} ` +
+         `Flags: <code>CF = IntRes2 ≠ 0</code>, <code>ZF</code> = xmm2 ended, <code>SF</code> = xmm1 ended, <code>OF = IntRes2[0]</code>, <code>AF = PF = 0</code>. ` +
+         `Intrinsic: <code>${IN.intrin}</code>. <code>PCMPISTRM</code> / <code>PCMPESTRM</code> are the same compare returning a mask in <code>XMM0</code> instead.`;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hexW(){ return elemBytes() * 2; }
+function hexN(v){ return v.toString(16).toUpperCase().padStart(hexW(), '0'); }
+function hex2(v){ return v.toString(16).toUpperCase().padStart(2, '0'); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function toSigned(v){ const b = elemBits(); return v >= (1 << (b-1)) ? v - (1 << b) : v; }
+// The value the comparison actually uses — only ranges care about signedness,
+// equality gives the same answer either way.
+function cmpVal(v){ return isSigned() ? toSigned(v) : v; }
+
+// How an element reads as text: '\0' for a terminator, the character itself when
+// it is printable ASCII, '·' otherwise (including any word with a high byte).
+function charOf(v){
+  if(v === 0) return '\\0';
+  if(v >= 0x20 && v <= 0x7E) return "'" + String.fromCharCode(v) + "'";
+  return '·';
+}
+
+// An element is written as hex (41 / 0x41 / 41h) or as a quoted character.
+function parseElem(raw){
+  const s = String(raw).trim();
+  const q = /^'(.)'$/.exec(s);
+  if(q) return q[1].charCodeAt(0) & ((1 << elemBits()) - 1);
+  const h = s.toLowerCase().replace(/[\s_]/g, '').replace(/^0x/, '').replace(/h$/, '');
+  if(!/^[0-9a-f]+$/.test(h) || h.length > hexW()) return null;
+  return parseInt(h, 16);
+}
+
+// imm8 text entry. Hex is the default base; 0b and 0d select binary and decimal.
+// A prefixed form whose digits don't fit its base falls through to hex, so every
+// hex spelling still parses ("0b2" is 0x0B2). Returns null for anything outside 0..255.
+function parseImm(raw){
+  const s = String(raw).trim().toLowerCase().replace(/[\s_]/g, '');
+  let v;
+  if(/^0b[01]+$/.test(s))                v = parseInt(s.slice(2), 2);
+  else if(/^0d[0-9]+$/.test(s))          v = parseInt(s.slice(2), 10);
+  else if(/^(0x)?[0-9a-f]+h?$/.test(s))  v = parseInt(s.replace(/^0x/, '').replace(/h$/, ''), 16);
+  else return null;
+  return (v >= 0 && v <= 0xFF) ? v : null;
+}
+
+// A length register is a plain signed integer: decimal, 0d-decimal, or 0x-hex.
+function parseLen(raw){
+  const s = String(raw).trim().toLowerCase().replace(/[\s_]/g, '');
+  const m = /^(-?)(?:0x([0-9a-f]+)|(?:0d)?([0-9]+))$/.exec(s);
+  if(!m) return null;
+  const v = m[2] !== undefined ? parseInt(m[2], 16) : parseInt(m[3], 10);
+  if(!isFinite(v) || v > 0x7FFFFFFF) return null;
+  return m[1] ? -v : v;
+}
+
+function setImm(v){
+  const before = N();
+  imm8 = v & 0xFF;
+  if(N() !== before) build();      // bytes ↔ words changes the whole picture
+  updatePresentation();
+  render(); drawArrows(); updateInfo();
+}
+// Write one imm8 field without disturbing the others.
+function setField(shift, mask, v){
+  setImm((imm8 & ~(mask << shift)) | ((v & mask) << shift));
+  syncImmInput(true);
+}
+
+// ─── Seed data ──────────────────────────────────────────────────────────────
+// Fill an operand of `bytes`-wide elements from text, zero-padding the rest of
+// the register and dropping anything that does not fit.
+function loadText(arr, text, bytes){
+  const n = 16 / bytes, mask = (1 << (bytes * 8)) - 1;
+  for(let i=0; i<n; i++) arr[i] = i < text.length ? (text.charCodeAt(i) & mask) : 0;
+}
+// Reload both operands (in both element widths) with data that suits the
+// selected aggregation.
+function seedExample(){
+  const ex = EXAMPLES[agg()];
+  for(const bytes of [1, 2]){
+    loadText(store[bytes].s1, ex.a, bytes);
+    loadText(store[bytes].s2, ex.b, bytes);
+  }
+  len1 = Math.min(ex.a.length, N());
+  len2 = Math.min(ex.b.length, N());
+}
+function loadExample(){
+  seedExample();
+  syncTextInputs(); syncLenInputs();
+  render(); drawArrows(); updateInfo();
+}
+
+// ─── Lengths ────────────────────────────────────────────────────────────────
+// What the instruction is told the length is: the null position for the
+// implicit form, |EAX| / |EDX| for the explicit one. May exceed the element
+// count — the flags look at this value, the validity mask at the saturated one.
+function rawLen(which){
+  const n = N();
+  if(IN.explicit) return Math.abs(which === 1 ? len1 : len2);
+  const a = which === 1 ? s1() : s2();
+  for(let i=0; i<n; i++) if(a[i] === 0) return i;
+  return n;
+}
+function useLen(which){ return Math.min(rawLen(which), N()); }
+
+// ─── The instruction ────────────────────────────────────────────────────────
+function boolRes(i, j, a, b, A, v1, v2){
+  let raw;
+  if(A === 1) raw = (i % 2 === 0) ? cmpVal(b[j]) >= cmpVal(a[i])    // even: lower bound
+                                  : cmpVal(b[j]) <= cmpVal(a[i]);   // odd:  upper bound
+  else        raw = a[i] === b[j];
+  raw = raw ? 1 : 0;
+  if(v1 && v2) return { v: raw, forced: false, raw };
+  const kase = (!v1 && !v2) ? 0 : (!v1 ? 1 : 2);
+  return { v: FORCE[A][kase], forced: true, raw, kase };
+}
+
+function compute(){
+  const n = N(), a = s1(), b = s2(), A = agg();
+  const L1 = useLen(1), L2 = useLen(2);
+
+  const B = [];
+  for(let i=0; i<n; i++){
+    B.push([]);
+    for(let j=0; j<n; j++) B[i].push(boolRes(i, j, a, b, A, i < L1, j < L2));
+  }
+
+  const r1 = new Array(n).fill(0);
+  if(A === 0){                                   // equal any: OR down the column
+    for(let j=0; j<n; j++){ let v = 0; for(let i=0; i<n; i++) v |= B[i][j].v; r1[j] = v; }
+  } else if(A === 1){                            // ranges: OR of the row pairs
+    for(let j=0; j<n; j++){ let v = 0; for(let k=0; 2*k+1 < n; k++) v |= (B[2*k][j].v & B[2*k+1][j].v); r1[j] = v; }
+  } else if(A === 2){                            // equal each: the diagonal
+    for(let i=0; i<n; i++) r1[i] = B[i][i].v;
+  } else {                                       // equal ordered: AND down a diagonal
+    for(let j=0; j<n; j++){ let v = 1; for(let i=0; i+j < n; i++) v &= B[i][j+i].v; r1[j] = v; }
+  }
+
+  const P = pol();
+  // Negative polarity complements everything; masked negative complements only
+  // the bits that belong to a valid xmm2 element.
+  const r2 = r1.map((v, j) => P === 1 ? (v ^ 1) : (P === 3 ? (j < L2 ? (v ^ 1) : v) : v));
+
+  const any = r2.some(v => v);
+  let idx = n;
+  if(any) idx = msbSel() ? r2.lastIndexOf(1) : r2.indexOf(1);
+
+  return {
+    n, A, L1, L2, B, r1, r2, idx,
+    CF: any ? 1 : 0,
+    ZF: rawLen(2) < n ? 1 : 0,
+    SF: rawLen(1) < n ? 1 : 0,
+    OF: r2[0],
+  };
+}
+
+// Does BoolRes[i][j] take part in the aggregation at all?
+function participates(i, j, A){
+  if(A === 2) return i === j;
+  if(A === 3) return i <= j;     // cell (i, j) feeds IntRes1[j - i]
+  return true;
+}
+// Which IntRes1 bit BoolRes[i][j] feeds, or -1.
+function feedsBit(i, j, A){
+  if(A === 2) return i === j ? i : -1;
+  if(A === 3) return i <= j ? j - i : -1;
+  return j;
+}
+// The cells IntRes1[k] is made of, as [i, j] pairs.
+function contributors(k, A, n){
+  const out = [];
+  if(A === 2){ out.push([k, k]); return out; }
+  if(A === 3){ for(let i=0; i+k < n; i++) out.push([i, k+i]); return out; }
+  for(let i=0; i<n; i++) out.push([i, k]);
+  return out;
+}
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function selectInstr(key){
+  IN = INSTR_BY_KEY[key] || INSTRS[0];
+  hov = { kind:'', i:-1, j:-1 };
+  closePopup(); closeImmMenu();
+  build();
+  updatePresentation();
+  render(); drawArrows();
+  resetInfo();   // build() dropped the hover, so the old instruction's story must go too
+  // Forced: a tab click may leave focus in the imm8 box, and render()'s sync skips it then.
+  syncImmInput(true);
+}
+
+function syncLenInputs(){
+  const e1 = document.getElementById('len1'), e2 = document.getElementById('len2');
+  if(document.activeElement !== e1){ e1.value = String(len1); e1.classList.remove('bad'); }
+  if(document.activeElement !== e2){ e2.value = String(len2); e2.classList.remove('bad'); }
+}
+// The text boxes show the operand as text and rewrite it when typed into, so
+// they follow element edits too. An element that is not printable ASCII shows
+// as '.', and typing in the box then commits that '.' — what the box shows is
+// what the box loads.
+function syncTextInputs(){
+  // How much of the register is the string: up to the first null in the
+  // implicit form, exactly the length register in the explicit one — where a
+  // null is ordinary data and must not cut the text short.
+  const txt = (arr, which) => {
+    const lim = IN.explicit ? useLen(which) : N();
+    let s = '';
+    for(let i=0; i<lim; i++){
+      const v = arr[i];
+      if(!IN.explicit && v === 0) break;
+      s += (v >= 0x20 && v <= 0x7E) ? String.fromCharCode(v) : '.';
+    }
+    return s;
+  };
+  const t1 = document.getElementById('str1'), t2 = document.getElementById('str2');
+  if(document.activeElement !== t1) t1.value = txt(s1(), 1);
+  if(document.activeElement !== t2) t2.value = txt(s2(), 2);
+}
+
+function rebuildFieldSelects(){
+  const fill = (id, list, sel) => {
+    const s = document.getElementById(id);
+    s.innerHTML = '';
+    list.forEach((o, i) => {
+      const opt = document.createElement('option');
+      opt.value = i; opt.textContent = o.label;
+      s.appendChild(opt);
+    });
+    s.value = sel;
+  };
+  fill('f-fmt', FMT, imm8 & 3);
+  fill('f-agg', AGG, agg());
+  fill('f-pol', POL, pol());
+  fill('f-out', OUT, msbSel());
+}
+
+function rebuildImmPresets(){
+  const menu = document.getElementById('imm-menu');
+  menu.innerHTML = '';
+  for(const p of PRESETS){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.v = p.v;
+    b.innerHTML = `<span>0x${hex2(p.v)} &middot; ${esc(p.use)}</span><span class="mv">${esc(immSummaryOf(p.v))}</span>`;
+    b.onclick = () => { closeImmMenu(); setImm(p.v); syncImmInput(true); };
+    menu.appendChild(b);
+  }
+  markImmMenu();
+}
+function immSummaryOf(v){
+  return `${FMT[v & 3].short}/${AGG[(v >> 2) & 3].short}/${POL[(v >> 4) & 3].short}/${OUT[(v >> 6) & 1].short}`;
+}
+function markImmMenu(){
+  document.querySelectorAll('#imm-menu button').forEach(b =>
+    b.classList.toggle('sel', parseInt(b.dataset.v) === imm8));
+}
+function immMenuOutside(e){
+  if(!document.getElementById('imm-combo').contains(e.target)) closeImmMenu();
+}
+function openImmMenu(){
+  const menu = document.getElementById('imm-menu');
+  if(!menu.hidden) return;
+  markImmMenu();
+  menu.hidden = false;
+  document.getElementById('imm-caret').setAttribute('aria-expanded', 'true');
+  document.addEventListener('mousedown', immMenuOutside);
+}
+function closeImmMenu(){
+  const menu = document.getElementById('imm-menu');
+  if(menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('imm-caret').setAttribute('aria-expanded', 'false');
+  document.removeEventListener('mousedown', immMenuOutside);
+}
+
+// Refresh everything that depends on (instruction, imm8) but not on cell values.
+function updatePresentation(){
+  const n = N();
+  document.title = IN.name + ' — Interactive String Compare Visualiser';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === IN.key));
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('width-badge').textContent = `${n} × ${elemBits()}-bit → ECX`;
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('isa-ref').href = IN.ref;
+  rebuildFieldSelects();
+  document.getElementById('field-notes').innerHTML =
+    `<div><code>imm8[3:2] = ${agg()}</code> ${AGG[agg()].label}: ${AGG[agg()].desc}</div>` +
+    `<div><code>imm8[5:4] = ${pol()}</code> ${POL[pol()].label}: ${POL[pol()].desc}</div>`;
+
+  const lenCtl = document.getElementById('len-ctl'), sep = document.getElementById('len-sep');
+  lenCtl.style.display = IN.explicit ? '' : 'none';
+  sep.style.display = IN.explicit ? '' : 'none';
+
+  document.getElementById('src2-hint').textContent = IN.explicit
+    ? `the data being scanned — ${n} ${elemName()}s, |EDX| of them valid (saturated at ${n}) · click one to edit`
+    : `the data being scanned — ${n} ${elemName()}s, valid up to the first \\0 · click one to edit`;
+  document.getElementById('src1-hint').textContent =
+    (agg() === 1 ? `the range pairs, low bound / high bound` :
+     agg() === 3 ? `the needle` :
+     agg() === 2 ? `the string compared position by position` : `the character set`) +
+    ` — ${n} ${elemName()}s down the side of the matrix · click one to edit`;
+  document.getElementById('agg-hint').innerHTML = aggFormula() +
+    ` <span class="hint">Dashed cells were forced by the end-of-string rules instead of compared; faded cells are not read at all.</span>`;
+  document.getElementById('imm-hint').textContent =
+    'click a bit to toggle · ' + immSummary() + (resBit() ? ' · bit 7 is reserved and should be 0' : '');
+
+  const cur = parseHash(location.hash.replace(/^#/, ''));
+  if(cur !== IN.key) history.replaceState(null, '', '#pcmp' + (IN.explicit ? 'e' : 'i') + 'stri');
+}
+
+function aggFormula(){
+  const n = N();
+  switch(agg()){
+    case 0: return `<strong>equal any</strong> &nbsp;<code>IntRes1[j] = OR over i of (xmm1[i] == xmm2[j])</code> — is xmm2[j] any of the xmm1 ${elemName()}s? One column of the matrix per bit.`;
+    case 1: return `<strong>ranges</strong> &nbsp;<code>IntRes1[j] = OR over k of (xmm1[2k] &le; xmm2[j] &le; xmm1[2k+1])</code> — xmm1 is read as ${Math.floor(n/2)} ${isSigned() ? 'signed' : 'unsigned'} low/high pairs.`;
+    case 2: return `<strong>equal each</strong> &nbsp;<code>IntRes1[i] = (xmm1[i] == xmm2[i])</code> — only the diagonal of the matrix is read.`;
+    default:return `<strong>equal ordered</strong> &nbsp;<code>IntRes1[j] = AND over i of (xmm1[i] == xmm2[j+i])</code> — does xmm1 start at xmm2[j]? One diagonal of the matrix per bit; ` +
+                   `a diagonal that runs off the right edge is ANDed over fewer terms, so a 1 in the high bits can be a partial match.`;
+  }
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+function makeCell(idxLabel, cls){
+  const el = document.createElement('div');
+  el.className = 'cell ' + cls;
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span><span class="cell-ch"></span>`;
+  el._val = el.children[1];
+  el._ch  = el.children[2];
+  return el;
+}
+
+function build(){
+  closePopup();
+  // Everything hov points at is about to be thrown away, and a byte ↔ word
+  // switch can leave an index that no longer exists.
+  hov = { kind:'', i:-1, j:-1 };
+  const n = N();
+  const flow = document.getElementById('flow');
+  flow.style.setProperty('--cols', n);
+  flow.style.setProperty('--mh', n === 16 ? '26px' : '36px');
+  cells = { src1: [], src2: [], mat: [], r1: [], r2: [], imm: [] };
+
+  // xmm2 across the top — every later row lines up with these columns.
+  const lane2 = document.getElementById('src2-lane');
+  lane2.innerHTML = '';
+  lane2.appendChild(document.createElement('div'));      // gutter spacer
+  for(let j=0; j<n; j++){
+    const el = makeCell(`[${j}]`, 'src2-cell');
+    el.onclick = () => openElemPopup(s2(), `xmm2[${j}]`, j, el, lane2);
+    wireHover(el, { kind:'src2', j });
+    lane2.appendChild(el);
+    cells.src2.push(el);
+  }
+
+  // The matrix, with xmm1 running down the gutter column.
+  const mat = document.getElementById('mat');
+  mat.innerHTML = '';
+  mat.style.rowGap = '2px';
+  for(let i=0; i<n; i++){
+    const side = document.createElement('div');
+    side.className = 'side-cell';
+    side.innerHTML = `<span class="si"></span><span class="sv"></span><span class="sc"></span>`;
+    side._i = side.children[0]; side._v = side.children[1]; side._c = side.children[2];
+    side.onclick = () => openElemPopup(s1(), `xmm1[${i}]`, i, side, mat);
+    wireHover(side, { kind:'src1', i });
+    mat.appendChild(side);
+    cells.src1.push(side);
+
+    const row = [];
+    for(let j=0; j<n; j++){
+      const c = document.createElement('div');
+      c.className = 'mcell';
+      wireHover(c, { kind:'mat', i, j });
+      mat.appendChild(c);
+      row.push(c);
+    }
+    cells.mat.push(row);
+  }
+
+  // IntRes1 / IntRes2, one bit under each xmm2 column.
+  for(const [id, key, label] of [['r1-lane','r1','IntRes1'], ['r2-lane','r2','IntRes2']]){
+    const lane = document.getElementById(id);
+    lane.innerHTML = '';
+    const lbl = document.createElement('div');
+    lbl.className = 'lane-lbl'; lbl.textContent = label;
+    lane.appendChild(lbl);
+    for(let j=0; j<n; j++){
+      const el = document.createElement('div');
+      el.className = 'bit-cell';
+      wireHover(el, { kind:key, j });
+      lane.appendChild(el);
+      cells[key].push(el);
+    }
+  }
+
+  // ECX lands in the column of the bit it names, so the arrow drops straight down.
+  const ecx = document.getElementById('ecx-lane');
+  ecx.innerHTML = '';
+  const chip = document.createElement('div');
+  chip.className = 'ecx-chip'; chip.id = 'ecx-chip';
+  ecx.appendChild(chip);
+  cells.ecx = chip;
+
+  // imm8, bit 7 on the left down to bit 0 on the right. The lane keeps the same
+  // template as the rest, so it needs the gutter spacer even at zero width.
+  const immLane = document.getElementById('imm-lane');
+  immLane.innerHTML = '';
+  immLane.appendChild(document.createElement('div'));
+  for(let b=7; b>=0; b--){
+    const el = makeCell(`bit ${b}`, 'imm-cell');
+    el.style.height = '40px';
+    el.onclick = () => { setImm(imm8 ^ (1 << b)); syncImmInput(true); };
+    wireHover(el, { kind:'imm', i:b });
+    immLane.appendChild(el);
+    cells.imm[b] = el;
+  }
+
+  syncTextInputs();
+}
+
+// Wire hover on a cell: clear all hover state, set the one this cell owns, redraw.
+function wireHover(el, h){
+  el.addEventListener('mouseenter', () => {
+    hov = { kind:h.kind, i: h.i === undefined ? -1 : h.i, j: h.j === undefined ? -1 : h.j };
+    refreshHover(); drawArrows(); updateInfo();
+  });
+  el.addEventListener('mouseleave', () => {
+    hov = { kind:'', i:-1, j:-1 };
+    refreshHover(); drawArrows(); resetInfo();
+  });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  R = compute();
+  const { n, A, L1, L2, B, r1, r2, idx } = R;
+  const a = s1(), b = s2();
+
+  for(let j=0; j<n; j++){
+    const el = cells.src2[j], v = b[j], valid = j < L2;
+    el._val.textContent = '0x' + hexN(v);
+    el._ch.textContent = charOf(v);
+    el.className = 'cell src2-cell' + (valid ? '' : ' idle');
+    el.title = `xmm2[${j}] = 0x${hexN(v)} ${charOf(v)}${isSigned() ? ` (${toSigned(v)})` : ''} — ` +
+      (valid ? 'valid' : 'past the end of the string, invalid') + ' · click to edit';
+  }
+
+  const pairEnd = i => (A === 1 && i % 2 === 1) ? ' pair-end' : '';
+  for(let i=0; i<n; i++){
+    const el = cells.src1[i], v = a[i], valid = i < L1;
+    el._i.textContent = `[${i}]` + (A === 1 ? (i % 2 === 0 ? ' lo' : ' hi') : '');
+    el._v.textContent = '0x' + hexN(v);
+    el._c.textContent = charOf(v);
+    el.className = 'side-cell' + (valid ? '' : ' idle') + pairEnd(i);
+    el.title = `xmm1[${i}] = 0x${hexN(v)} ${charOf(v)}${isSigned() ? ` (${toSigned(v)})` : ''} — ` +
+      (valid ? 'valid' : 'past the end of the string, invalid') +
+      (A === 1 ? (i % 2 === 0 ? ` · lower bound of range ${i/2}` : ` · upper bound of range ${(i-1)/2}`) : '') +
+      ' · click to edit';
+  }
+
+  for(let i=0; i<n; i++) for(let j=0; j<n; j++){
+    const c = cells.mat[i][j], r = B[i][j];
+    c.textContent = r.v;
+    c.className = 'mcell' + (r.v ? ' one' : '') + (r.forced ? ' forced' : '') +
+                  (participates(i, j, A) ? '' : ' off') + pairEnd(i);
+    c.title = boolText(i, j, r, false);
+  }
+
+  for(let j=0; j<n; j++){
+    const e1 = cells.r1[j], e2 = cells.r2[j];
+    e1.textContent = r1[j];
+    e1.className = 'bit-cell' + (r1[j] ? ' one' : '');
+    e1.title = `IntRes1[${j}] = ${r1[j]}`;
+    e2.textContent = r2[j];
+    e2.className = 'bit-cell' + (r2[j] ? ' one' : '') + (r2[j] !== r1[j] ? ' flip' : '') +
+                   (j === idx && R.CF ? ' pick' : '');
+    e2.title = `IntRes2[${j}] = ${r2[j]}` + (r2[j] !== r1[j] ? ' — complemented by the polarity field' : '') +
+               (j === idx && R.CF ? ` — the ${msbSel() ? 'highest' : 'lowest'} set bit, so ECX = ${idx}` : '');
+  }
+
+  const chip = cells.ecx;
+  chip.textContent = `ECX = ${idx}`;
+  chip.className = 'ecx-chip' + (R.CF ? '' : ' none');
+  chip.style.gridColumn = R.CF ? (idx + 2) : 1;
+  chip.title = R.CF
+    ? `IntRes2[${idx}] is the ${msbSel() ? 'highest' : 'lowest'} set bit`
+    : `IntRes2 is zero, so ECX gets the element count (${idx})`;
+
+  for(let bit=0; bit<8; bit++){
+    const el = cells.imm[bit], v = (imm8 >> bit) & 1;
+    el._val.textContent = v;
+    el._ch.textContent = immFieldName(bit);
+    el.className = 'cell imm-cell' + (bit === 7 ? ' idle' : '');
+    el.title = immBitText(bit, v);
+  }
+
+  syncImmInput();
+  syncLenInputs();
+  syncTextInputs();
+  updateResult();
+  refreshHover();
+}
+
+function immFieldName(bit){
+  return bit === 7 ? 'rsvd' : bit === 6 ? 'index' : bit >= 4 ? 'polarity' : bit >= 2 ? 'aggregate' : bit === 1 ? 'sign' : 'size';
+}
+function immBitText(bit, v){
+  if(bit === 7) return `imm8[7] = ${v} — reserved, should be 0; no defined effect`;
+  if(bit === 6) return `imm8[6] = ${v} — ${OUT[msbSel()].label}`;
+  if(bit >= 4)  return `imm8[5:4] = ${pol()} — ${POL[pol()].label} polarity`;
+  if(bit >= 2)  return `imm8[3:2] = ${agg()} — ${AGG[agg()].label}`;
+  return `imm8[1:0] = ${imm8 & 3} — ${FMT[imm8 & 3].label}`;
+}
+
+// Mirror imm8 into the text box. Skipped while the box has focus (unless
+// forced) so it doesn't fight the user mid-keystroke.
+function syncImmInput(force){
+  const el = document.getElementById('imm-input');
+  markImmMenu();
+  if(!force && document.activeElement === el) return;
+  el.value = '0x' + hex2(imm8);
+  el.classList.remove('bad');
+}
+
+function updateResult(){
+  const { n, idx, CF, ZF, SF, OF, r1, r2, L1, L2 } = R;
+  const bits = arr => arr.slice().reverse().join('');   // bit n-1 … bit 0
+  const flag = (name, v, why) => `<span class="flag${v ? ' set' : ''}" title="${esc(why)}">${name} = ${v}</span>`;
+  const lenSrc = IN.explicit
+    ? `|EAX| = ${Math.abs(len1)} &rarr; ${L1}, |EDX| = ${Math.abs(len2)} &rarr; ${L2} (saturated at ${n})`
+    : `first \\0: xmm1 ${rawLen(1) === n ? 'has none' : 'at ' + rawLen(1)}, xmm2 ${rawLen(2) === n ? 'has none' : 'at ' + rawLen(2)} &rarr; lengths ${L1} and ${L2}`;
+  document.getElementById('kres').innerHTML =
+    `<div>valid elements: xmm1 <strong>${L1}</strong> &middot; xmm2 <strong>${L2}</strong> &nbsp;—&nbsp; ${lenSrc}</div>` +
+    `<div>IntRes1 = <strong>0b${bits(r1)}</strong> &middot; IntRes2 = <strong>0b${bits(r2)}</strong> &middot; ` +
+    `ECX = <strong>${idx}</strong>${CF ? '' : ` (no bit set &rarr; the element count)`}</div>` +
+    `<div>` +
+      flag('CF', CF, 'set when IntRes2 is non-zero — the search found something') +
+      flag('ZF', ZF, IN.explicit ? '|EDX| < element count — xmm2 is a partial register'
+                                 : 'xmm2 contains a null — the data string ended') +
+      flag('SF', SF, IN.explicit ? '|EAX| < element count — xmm1 is a partial register'
+                                 : 'xmm1 contains a null — the pattern string ended') +
+      flag('OF', OF, 'IntRes2[0] — the result bit for element 0') +
+      flag('AF', 0, 'always cleared') +
+      flag('PF', 0, 'always cleared') +
+    `</div>`;
+}
+
+// ─── Hover ──────────────────────────────────────────────────────────────────
+// Everything the hovered thing touches: the matrix cells that feed a result
+// bit, the row and column an element owns, the bit a matrix cell lands in.
+function hoverSet(){
+  const { n, A } = R;
+  const out = { mat: [], band: [], src1: -1, src2: -1, bit: -1 };
+  if(hov.kind === 'src1'){ out.src1 = hov.i; for(let j=0; j<n; j++) out.mat.push([hov.i, j]); }
+  else if(hov.kind === 'src2'){ out.src2 = hov.j; for(let i=0; i<n; i++) out.mat.push([i, hov.j]); out.bit = hov.j; }
+  else if(hov.kind === 'mat'){ out.mat.push([hov.i, hov.j]); out.src1 = hov.i; out.src2 = hov.j; out.bit = feedsBit(hov.i, hov.j, A); }
+  else if(hov.kind === 'r1' || hov.kind === 'r2'){ out.band = contributors(hov.j, A, n); out.bit = hov.j; out.src2 = hov.j; }
+  return out;
+}
+
+function refreshHover(){
+  const { n, A } = R;
+  const h = hoverSet();
+  const inMat = new Set(h.mat.map(p => p[0] + ',' + p[1]));
+  const inBand = new Set(h.band.map(p => p[0] + ',' + p[1]));
+  for(let i=0; i<n; i++) for(let j=0; j<n; j++){
+    const c = cells.mat[i][j];
+    c.classList.toggle('lit', inMat.has(i + ',' + j));
+    c.classList.toggle('band', inBand.has(i + ',' + j));
+  }
+  for(let i=0; i<n; i++) cells.src1[i].classList.toggle('lit', i === h.src1);
+  for(let j=0; j<n; j++) cells.src2[j].classList.toggle('lit', j === h.src2);
+  for(let j=0; j<n; j++){
+    cells.r1[j].classList.toggle('lit', j === h.bit);
+    cells.r2[j].classList.toggle('lit', j === h.bit);
+  }
+  for(let b=0; b<8; b++) cells.imm[b].classList.toggle('lit', hov.kind === 'imm' && b === hov.i);
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){
+  document.getElementById('info').textContent = 'Hover over an element, a matrix cell or a result bit to trace the comparison.';
+}
+
+// How one BoolRes cell got its value, as plain text (tooltip) or HTML (info box).
+function boolText(i, j, r, rich){
+  const A = R.A, a = s1(), b = s2();
+  const B_ = s => rich ? `<strong>${s}</strong>` : s;
+  const E_ = s => rich ? esc(s) : s;
+  // In signed mode the hex alone reads backwards (0xFF ≤ 0x00 is true), so the
+  // signed value has to be on the page next to it.
+  const sv = v => isSigned() ? ` (${toSigned(v)})` : '';
+  const x1 = E_(`xmm1[${i}] = 0x${hexN(a[i])}${sv(a[i])} ${charOf(a[i])}`);
+  const x2 = E_(`xmm2[${j}] = 0x${hexN(b[j])}${sv(b[j])} ${charOf(b[j])}`);
+  // For ranges the even row is the lower bound and the odd row the upper one,
+  // so both cells read as "the data element is inside this end of the range".
+  const expr = A === 1
+    ? (i % 2 === 0 ? `${x1} ≤ ${x2}` : `${x2} ≤ ${x1}`)
+    : `${x1} == ${x2}`;
+  if(!r.forced) return `${B_('BoolRes[' + i + '][' + j + '] = ' + r.v)} — ${expr}${isSigned() ? ' (signed)' : ''}`;
+  const who = r.kase === 0 ? 'both elements are past the end of their string'
+            : r.kase === 1 ? `xmm1[${i}] is past the end of the pattern`
+            : `xmm2[${j}] is past the end of the data`;
+  return `${B_('BoolRes[' + i + '][' + j + '] = ' + r.v)} — forced to ${r.v} because ${who}; ` +
+         `${AGG[A].label} always forces ${r.v} here (the comparison itself would give ${r.raw})`;
+}
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  const { n, A, L1, L2, B, r1, r2, idx } = R;
+  const a = s1(), b = s2();
+
+  if(hov.kind === 'src1'){
+    const i = hov.i, valid = i < L1;
+    const role = A === 1 ? (i % 2 === 0 ? `the <strong>lower bound</strong> of range ${i/2}` : `the <strong>upper bound</strong> of range ${(i-1)/2}`)
+               : A === 3 ? `${esc(charOf(a[i]))} at offset ${i} of the needle`
+               : A === 2 ? `compared only against xmm2[${i}]`
+               : `one member of the character set`;
+    box.innerHTML = `<strong>xmm1[${i}] = 0x${hexN(a[i])} ${esc(charOf(a[i]))}</strong>${isSigned() ? ` (signed ${toSigned(a[i])})` : ''} — ${role}. ` +
+      (valid ? `Valid (the pattern is ${L1} ${elemName()}s long), so row ${i} of the matrix is compared for real.`
+             : `<strong>Invalid</strong> — the pattern is only ${L1} ${elemName()}s long, so nothing in row ${i} is really compared: ` +
+               `every cell is forced to ${FORCE[A][1]} where xmm2 is still valid` +
+               (FORCE[A][0] !== FORCE[A][1] ? ` and to ${FORCE[A][0]} where it is not.` : '.'));
+    return;
+  }
+
+  if(hov.kind === 'src2'){
+    const j = hov.j, valid = j < L2;
+    box.innerHTML = `<strong>xmm2[${j}] = 0x${hexN(b[j])} ${esc(charOf(b[j]))}</strong>${isSigned() ? ` (signed ${toSigned(b[j])})` : ''} — ` +
+      (valid ? `valid (the data is ${L2} ${elemName()}s long). ` : `<strong>invalid</strong>, past the end of the data. `) +
+      `Column ${j} of the matrix aggregates into <strong>IntRes1[${j}] = ${r1[j]}</strong>, which polarity turns into <strong>IntRes2[${j}] = ${r2[j]}</strong>.`;
+    return;
+  }
+
+  if(hov.kind === 'mat'){
+    const i = hov.i, j = hov.j, bit = feedsBit(i, j, A);
+    const tail = bit < 0
+      ? ` This cell is <strong>not read</strong> by ${AGG[A].label}${A === 2 ? ' — only the diagonal is' : ' — the needle would start before xmm2[0]'}.`
+      : A === 3 ? ` It is one term of <strong>IntRes1[${bit}] = ${r1[bit]}</strong> (xmm1 laid over xmm2 starting at ${bit}); every term must be 1.`
+      : A === 1 ? ` With its partner in the pair it forms one range test for <strong>IntRes1[${bit}] = ${r1[bit]}</strong>.`
+      : ` It is one term of <strong>IntRes1[${bit}] = ${r1[bit]}</strong>.`;
+    box.innerHTML = boolText(i, j, B[i][j], true) + '.' + tail;
+    return;
+  }
+
+  if(hov.kind === 'r1'){
+    const j = hov.j, cs = contributors(j, A, n);
+    // Ranges ORs one value per pair, so show the pair results, not the raw cells.
+    const list = A === 1
+      ? cs.filter((_, k) => k % 2 === 0).map(([i, jj]) => B[i][jj].v & B[i+1][jj].v).join('')
+      : cs.map(([i, jj]) => B[i][jj].v).join('');
+    const how = A === 0 ? `OR of the ${n} cells in column ${j}`
+              : A === 1 ? `OR of the ${Math.floor(n/2)} range tests in column ${j}`
+              : A === 2 ? `the single diagonal cell [${j}][${j}]`
+              : `AND of the ${cs.length} cell${cs.length === 1 ? '' : 's'} on the diagonal starting at row 0, column ${j}`;
+    box.innerHTML = `<strong>IntRes1[${j}] = ${r1[j]}</strong> — ${how}: <code>${list}</code>. ` +
+      (A === 3 ? (cs.length < L1
+        ? `A 1 means the first ${cs.length} ${elemName()}${cs.length === 1 ? ' of xmm1 matches' : 's of xmm1 match'} xmm2 from element ${j} on — the rest of the pattern falls past the end of the register, so this is only a <strong>partial</strong> match.`
+        : `A 1 means xmm1 matches xmm2 starting at element ${j}.`)
+       : A === 2 ? `A 1 means the two strings agree at position ${j}.`
+       : `A 1 means xmm2[${j}] = 0x${hexN(b[j])} ${esc(charOf(b[j]))} ${A === 0 ? 'is one of the xmm1 characters' : 'falls inside one of the ranges'}.`);
+    return;
+  }
+
+  if(hov.kind === 'r2'){
+    const j = hov.j, P = pol();
+    const why = P === 0 || P === 2 ? `Polarity is positive${P === 2 ? ' (the mask only matters for negation)' : ''}, so IntRes2 is IntRes1 unchanged.`
+              : P === 1 ? `Negative polarity complements every bit, so ${r1[j]} became ${r2[j]}.`
+              : (j < L2 ? `Masked negative polarity complements the bits of valid xmm2 elements, and element ${j} is valid, so ${r1[j]} became ${r2[j]}.`
+                        : `Masked negative polarity leaves the bits of invalid xmm2 elements alone, and element ${j} is past the end, so it stays ${r2[j]}.`);
+    box.innerHTML = `<strong>IntRes2[${j}] = ${r2[j]}</strong> &larr; IntRes1[${j}] = ${r1[j]}. ${why} ` +
+      (R.CF ? (j === idx ? `This is the ${msbSel() ? 'highest' : 'lowest'} set bit, so <strong>ECX = ${idx}</strong>.`
+                         : `The ${msbSel() ? 'highest' : 'lowest'} set bit is ${idx}, so ECX = ${idx}.`)
+            : `No bit of IntRes2 is set, so ECX gets the element count, <strong>${idx}</strong>.`);
+    return;
+  }
+
+  if(hov.kind === 'imm'){
+    const bit = hov.i, v = (imm8 >> bit) & 1;
+    const detail =
+      bit === 7 ? `<strong>imm8[7] = ${v}</strong> — reserved: it should be 0 and has no defined effect, so nothing here reads it.` :
+      bit === 6 ? `<strong>imm8[6] = ${v}</strong> — ${OUT[msbSel()].label}: ECX takes the ${msbSel() ? 'most' : 'least'} significant set bit of IntRes2.` :
+      bit >= 4  ? `<strong>imm8[5:4] = ${pol()}</strong> — ${POL[pol()].label} polarity: ${pol() === 1 ? 'IntRes2 is the 1\'s complement of IntRes1' : pol() === 3 ? 'IntRes1 is complemented only where xmm2 is valid' : 'IntRes2 = IntRes1'}.` :
+      bit >= 2  ? `<strong>imm8[3:2] = ${agg()}</strong> — ${AGG[agg()].label}: ${aggFormula().replace(/^<strong>[^<]*<\/strong> &nbsp;/, '')}` :
+      bit === 1 ? `<strong>imm8[1] = ${v}</strong> — ${isSigned() ? 'signed' : 'unsigned'} elements; only the range comparisons care.` :
+                  `<strong>imm8[0] = ${v}</strong> — ${elemBits()}-bit elements, so the register holds ${n} of them.`;
+    box.innerHTML = detail + ' Click to toggle.';
+    return;
+  }
+
+  resetInfo();
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openElemPopup(arr, label, i, el, host){
+  closePopup();
+  const hRect = host.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = label + " — hex or 'c'";
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x' + hexN(arr[i]); inp.placeholder = '0x' + '0'.repeat(hexW());
+  inp.onkeydown = e => {
+    if(e.key === 'Enter'){ commitElem(arr, i, inp.value); closePopup(); }
+    if(e.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => { commitElem(arr, i, inp.value); closePopup(); };
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  const allOnes = (1 << elemBits()) - 1;
+  for(const [txt, val] of [['\\0', 0], ["' '", 0x20], ["'0'", 0x30], ["'A'", 0x41], ["'a'", 0x61], ['0x' + hexN(allOnes), allOnes]]){
+    const btn = document.createElement('button');
+    btn.textContent = txt;
+    btn.onclick = () => { arr[i] = val; render(); drawArrows(); updateInfo(); closePopup(); };
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  host.appendChild(pop);
+  // Anchor above the cell, clamped to the host row. Upward matters: each
+  // .flow .lane is its own stacking context at the same z-index, so the popup
+  // can only paint over lanes that come *before* its host in the DOM — opened
+  // downward it would hide behind the matrix and the result rows.
+  pop.style.left = Math.max(0, Math.min(eRect.left - hRect.left, hRect.width - pop.offsetWidth)) + 'px';
+  pop.style.bottom = (hRect.bottom - eRect.top + 6) + 'px';
+  setTimeout(() => inp.select(), 0);
+
+  function outside(e){ if(!pop.contains(e.target) && e.target !== el && !el.contains(e.target)) closePopup(); }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+
+function commitElem(arr, i, raw){
+  const v = parseElem(raw);
+  if(v === null) return;
+  arr[i] = v;
+  render(); drawArrows(); updateInfo();   // the pointer may still be on a cell whose story just changed
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+// One wire only: the IntRes2 bit that wins the search down to ECX. The matrix
+// itself shows everything else, and 256 wires would show nothing.
+function drawArrows(){
+  const canv = document.getElementById('arrows');
+  const flow = document.getElementById('flow');
+  if(!canv || !flow || !R) return;
+  const ctx = canv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = flow.offsetWidth, H = flow.offsetHeight;
+  canv.width = W*dpr; canv.height = H*dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  if(!R.CF) return;
+
+  const cr = canv.getBoundingClientRect();
+  const from = cells.r2[R.idx], to = cells.ecx;
+  const fr = from.getBoundingClientRect(), tr = to.getBoundingClientRect();
+  const x1 = fr.left + fr.width/2 - cr.left, y1 = fr.bottom - cr.top;
+  const x2 = tr.left + tr.width/2 - cr.left, y2 = tr.top - cr.top;
+  const my = (y1 + y2) / 2;
+  ctx.strokeStyle = '#639922'; ctx.fillStyle = '#639922'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.bezierCurveTo(x1, my, x2, my, x2, y2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - 4, y2 - 7);
+  ctx.lineTo(x2 + 4, y2 - 7);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ─── Inputs ─────────────────────────────────────────────────────────────────
+const immInput = document.getElementById('imm-input');
+immInput.addEventListener('input', () => {
+  const v = parseImm(immInput.value);
+  immInput.classList.toggle('bad', v === null);
+  if(v !== null && v !== imm8) setImm(v);
+});
+immInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){ const v = parseImm(immInput.value); if(v !== null) setImm(v); syncImmInput(true); immInput.select(); return; }
+  if(e.key === 'Escape'){ closeImmMenu(); syncImmInput(true); immInput.blur(); return; }
+  if(e.altKey && e.key === 'ArrowDown'){ e.preventDefault(); openImmMenu(); return; }
+  if(e.key === 'ArrowUp' || e.key === 'ArrowDown'){
+    e.preventDefault();
+    const step = (e.shiftKey ? 16 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+    setImm(Math.max(0, Math.min(0xFF, imm8 + step)));   // clamp, never wrap past the ends
+    syncImmInput(true);
+  }
+});
+immInput.addEventListener('focus', () => immInput.select());
+immInput.addEventListener('blur',  () => syncImmInput(true));
+
+document.getElementById('imm-caret').addEventListener('click', () => {
+  if(document.getElementById('imm-menu').hidden) openImmMenu(); else closeImmMenu();
+});
+// The menu is also reachable by keyboard, so it has to close that way too —
+// mousedown-outside alone would strand it open behind a tab or an Escape.
+document.getElementById('imm-menu').addEventListener('keydown', e => {
+  if(e.key === 'Escape'){ closeImmMenu(); document.getElementById('imm-input').focus(); }
+});
+document.getElementById('imm-combo').addEventListener('focusout', e => {
+  if(!document.getElementById('imm-combo').contains(e.relatedTarget)) closeImmMenu();
+});
+
+for(const [id, which] of [['len1', 1], ['len2', 2]]){
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => {
+    const v = parseLen(el.value);
+    el.classList.toggle('bad', v === null);
+    if(v === null) return;
+    if(which === 1) len1 = v; else len2 = v;
+    render(); drawArrows(); updateInfo();
+  });
+  el.addEventListener('keydown', e => {
+    if(e.key === 'ArrowUp' || e.key === 'ArrowDown'){
+      e.preventDefault();
+      // Floored at 0: stepping down past it would raise the effective length
+      // again, since the instruction takes the absolute value. Negative values
+      // can still be typed — that is the point of showing |EAX|.
+      const d = e.key === 'ArrowUp' ? 1 : -1;
+      if(which === 1) len1 = Math.max(0, len1 + d); else len2 = Math.max(0, len2 + d);
+      syncLenInputs();
+      el.value = String(which === 1 ? len1 : len2);   // the box has focus, so sync skipped it
+      el.classList.remove('bad');
+      render(); drawArrows(); updateInfo();
+    }
+  });
+  el.addEventListener('blur', syncLenInputs);
+}
+
+for(const [id, pick] of [['str1', 1], ['str2', 2]]){
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => {
+    const arr = pick === 1 ? s1() : s2();
+    loadText(arr, el.value, elemBytes());
+    // The explicit form gets the matching length for free — it is still editable.
+    if(IN.explicit){ const L = Math.min(el.value.length, N()); if(pick === 1) len1 = L; else len2 = L; }
+    render(); drawArrows(); updateInfo();
+  });
+  // Typing more than fits leaves the box out of step with the register until
+  // the next render; resync when it loses focus.
+  el.addEventListener('blur', syncTextInputs);
+}
+
+document.getElementById('example').addEventListener('click', loadExample);
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const t of INSTRS){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = t.key;
+  btn.textContent = t.name;
+  btn.title = t.explicit
+    ? 'PCMPESTRI — explicit lengths in EAX / EDX'
+    : 'PCMPISTRI — implicit lengths, each string ends at its first null element';
+  btn.addEventListener('click', () => selectInstr(t.key));
+  tabBar.appendChild(btn);
+}
+
+function applyHash(h){
+  const key = parseHash(h);
+  if(!key) return false;
+  selectInstr(key);
+  return true;
+}
+// A hash that names no form is put back rather than left in the address bar.
+window.addEventListener('hashchange', () => {
+  if(!applyHash(location.hash.replace(/^#/, ''))) updatePresentation();
+});
+window.addEventListener('resize', drawArrows);
+
+IN = INSTRS[0];
+seedExample();
+rebuildImmPresets();
+if(!applyHash(location.hash.replace(/^#/, ''))) selectInstr('istri');
+</script>
+</body>
+</html>
