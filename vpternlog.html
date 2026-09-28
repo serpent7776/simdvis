@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VPTERNLOGD / VPTERNLOGQ — Interactive Ternary Logic Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 920px;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; font-family: var(--font-mono); }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; line-height: 1.6; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bt { background: #B9E4E2; color: #0A3E3B; }
+  .br { background: #F4C6D7; color: #4A0D26; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bt { background: #0E4B47; color: #B9E4E2; }
+    .br { background: #5A1030; color: #F4C6D7; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); column-gap: 3px; row-gap: 6px; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 46px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+  .cell-val { font-size: 11px; line-height: 1; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+
+  /* operands: A = dst's old value (blue), B (teal), C (rose) */
+  .a-cell { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .a-cell:hover { background: #B5D4F4; }
+  .b-cell { background: #DFF1F0; border-color: #2E8B87; color: #0A3E3B; cursor: pointer; }
+  .b-cell:hover { background: #B9E4E2; }
+  .c-cell { background: #FBE8EF; border-color: #C2477A; color: #4A0D26; cursor: pointer; }
+  .c-cell:hover { background: #F4C6D7; }
+  .c-cell.bcst { border-style: dashed; }
+  .a-cell.lit, .b-cell.lit, .c-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .km-cell  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 32px; }
+  .km-cell:hover { background: #D8C9F4; }
+  .km-cell.km-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km-cell.km-off:hover { background: #E4E1D5; }
+  .km-cell.active { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  /* dst: computed (green) / masked off and zeroed / masked off and kept (= A) */
+  .dst-res  { background: #EAF3DE; border-color: #639922; color: #173404; cursor: pointer; }
+  .dst-zer  { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: pointer; }
+  .dst-keep { background: #F4F0FA; border-color: #8367C7; color: #2A1356; cursor: pointer; }
+  .pinned { outline: 2px dashed #639922; outline-offset: 2px; }
+
+  .imm-cell { background: #FAEEDA; border-color: #EF9F27; color: #633806; cursor: pointer; }
+  .imm-cell:hover { background: #FAC775; }
+
+  @media (prefers-color-scheme: dark) {
+    .a-cell { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .a-cell:hover { background: #185FA5; }
+    .b-cell { background: #0E4B47; border-color: #2E8B87; color: #B9E4E2; }
+    .b-cell:hover { background: #14625D; }
+    .c-cell { background: #5A1030; border-color: #C2477A; color: #F4C6D7; }
+    .c-cell:hover { background: #761941; }
+    .a-cell.lit, .b-cell.lit, .c-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .km-cell  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km-cell:hover { background: #4F2D94; }
+    .km-cell.km-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km-cell.km-off:hover { background: #3A3A38; }
+    .dst-res  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-zer  { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .dst-keep { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .imm-cell { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .imm-cell:hover { background: #854F0B; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 14px; }
+  .section { margin-top: 1.5rem; }
+  .section-title { font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .section-title .hint { font-weight: 400; }
+
+  /* ── bit-level grids (truth table and one element's bits) ── */
+  .scroll-x { overflow-x: auto; padding: 3px 3px 4px; margin: -3px; }
+  .bgrid { display: grid; gap: 3px; align-items: stretch; }
+  .tt-grid  { grid-template-columns: 56px repeat(8, minmax(34px, 1fr)); }
+  .bit-grid { grid-template-columns: 30px repeat(32, minmax(15px, 1fr)); min-width: 560px; }
+  .blbl { font-family: var(--font-mono); font-size: 10px; color: var(--text2); display: flex; align-items: center; }
+  .bhdr { font-family: var(--font-mono); font-size: 9px; color: var(--text3); text-align: center; align-self: end; }
+  .bit {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+    display: flex; align-items: center; justify-content: center;
+    height: 22px; border-radius: 4px; border: 0.5px solid var(--border);
+    background: var(--bg2); color: var(--text3); min-width: 0;
+    transition: background .15s, box-shadow .15s;
+  }
+  .tt-grid .bit { height: 26px; }
+  .bit.click { cursor: pointer; }
+  .bit.click:hover { border-color: var(--border2); }
+  .bit.bsep { margin-left: 5px; }
+  .bit.hl { box-shadow: 0 0 0 2px #EF9F27; }
+  .bit.dim { opacity: .45; }
+
+  .bit.a1 { background: #B5D4F4; border-color: #378ADD; color: #042C53; }
+  .bit.b1 { background: #B9E4E2; border-color: #2E8B87; color: #0A3E3B; }
+  .bit.c1 { background: #F4C6D7; border-color: #C2477A; color: #4A0D26; }
+  .bit.f1 { background: #C0DD97; border-color: #639922; color: #173404; }
+  .bit.f0 { border-color: #639922; border-style: dashed; }
+  .bit.i1 { background: #FAC775; border-color: #EF9F27; color: #412402; }
+  .bit.i0 { background: #FAEEDA; border-color: #EF9F27; color: #9A6A2A; }
+  /* truth-table entry k gets its own hue so a bit column can be matched to it */
+  .bit.hue {
+    background: hsl(var(--h) 70% 91%); border-color: hsl(var(--h) 45% 58%); color: hsl(var(--h) 60% 22%);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .bit.a1 { background: #0C447C; color: #B5D4F4; }
+    .bit.b1 { background: #0E4B47; color: #B9E4E2; }
+    .bit.c1 { background: #5A1030; color: #F4C6D7; }
+    .bit.f1 { background: #27500A; color: #C0DD97; }
+    .bit.i1 { background: #854F0B; color: #FAC775; }
+    .bit.i0 { background: #3A2604; color: #C29A5A; }
+    .bit.hue { background: hsl(var(--h) 38% 24%); border-color: hsl(var(--h) 40% 45%); color: hsl(var(--h) 70% 86%); }
+  }
+
+  .imm-lbl {
+    font-size: 11px; color: var(--text3); font-family: var(--font-mono); margin-top: 8px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .imm-lbl strong { color: var(--text2); font-weight: 500; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .imm-input, .expr-input {
+    font-family: var(--font-mono); font-size: 11px; width: 84px;
+    padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+  }
+  .expr-input { width: 220px; max-width: 100%; }
+  .imm-input:focus, .expr-input:focus { outline: none; border-color: #EF9F27; box-shadow: 0 0 0 2px rgba(239,159,39,.35); }
+  .imm-input.bad, .expr-input.bad { border-color: #D94040; color: #D94040; }
+
+  .imm-combo { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+  .imm-caret {
+    font-size: 9px; line-height: 1; padding: 4px 5px; border-radius: 5px; cursor: pointer;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text2);
+  }
+  .imm-caret:hover { background: var(--bg3); color: var(--text); }
+  .imm-menu {
+    position: absolute; top: calc(100% + 5px); right: 0; z-index: 60;
+    background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius);
+    padding: 4px; min-width: 100%; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.16);
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 360px; overflow-y: auto;
+  }
+  .imm-menu[hidden] { display: none; }   /* class rule would otherwise beat UA [hidden] */
+  .imm-menu button {
+    display: flex; justify-content: space-between; gap: 14px; align-items: baseline;
+    font-family: var(--font-mono); font-size: 11px; text-align: left; width: 100%;
+    padding: 4px 7px; border-radius: 4px;
+    border: 0.5px solid transparent; background: none; color: var(--text2); cursor: pointer;
+  }
+  .imm-menu button:hover { background: var(--bg2); color: var(--text); }
+  .imm-menu button.sel { border-color: #EF9F27; color: var(--text); }
+  .imm-menu .mv { color: var(--text3); }
+
+  .popup {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 190px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+    <span class="ctl">
+      imm8:
+      <span class="imm-combo" id="imm-combo">
+        <input type="text" id="imm-input" class="imm-input" spellcheck="false" autocomplete="off"
+               title="Any value 0–255 — hex (CA / 0xCA / CAh), binary (0b11001010) or decimal (0d202). ↑/↓ steps by 1, shift+↑/↓ by 16.">
+        <button type="button" class="imm-caret" id="imm-caret" aria-expanded="false"
+                title="Pick a common function">&#9662;</button>
+        <div class="imm-menu" id="imm-menu" hidden></div>
+      </span>
+    </span>
+    <label class="ctl">
+      Width:
+      <select id="width" onchange="changeWidth(this.value)"></select>
+    </label>
+    <label class="ctl">
+      Mask:
+      <select id="kmode" onchange="changeKmaskMode(this.value)">
+        <option value="off">none</option>
+        <option value="merge">{k1} merge</option>
+        <option value="zero">{k1}{z} zero</option>
+      </select>
+    </label>
+    <label class="ctl">
+      C:
+      <select id="srckind" onchange="changeSrcKind(this.value)"></select>
+    </label>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div>
+    <div class="row-lbl"><span class="badge bb">A</span><span class="hint" id="a-hint"></span></div>
+    <div class="reg-grid" id="a-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge bt">B</span><span class="hint" id="b-hint"></span></div>
+    <div class="reg-grid" id="b-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge br">C</span><span class="hint" id="c-hint"></span></div>
+    <div class="reg-grid" id="c-grid"></div>
+    <div class="gap"></div>
+    <div id="kmask-row" hidden>
+      <div class="row-lbl"><span class="badge bp">k1</span><span class="hint" id="kmask-hint"></span></div>
+      <div class="reg-grid" id="kmask-grid"></div>
+      <div class="gap"></div>
+    </div>
+    <div class="row-lbl"><span class="badge bg">dst</span><span class="hint" id="dst-hint"></span></div>
+    <div class="reg-grid" id="dst-grid"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Truth table <span class="hint" id="tt-hint"></span></div>
+    <div class="scroll-x"><div class="bgrid tt-grid" id="tt-grid"></div></div>
+    <div class="imm-lbl" id="imm-note"></div>
+    <div class="imm-lbl">
+      <strong>f(A, B, C) =</strong>
+      <input type="text" id="expr-input" class="expr-input" spellcheck="false" autocomplete="off"
+             title="Type an expression in A, B, C using ~ ! & | ^ ?: ( ) 0 1 — imm8 is recomputed as you type">
+      <span id="expr-note"></span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title"><span id="bits-title"></span> <span class="hint" id="bits-hint"></span></div>
+    <div class="scroll-x" id="bits-wrap"></div>
+  </div>
+
+  <div class="info" id="info">Hover over any cell to trace the bitwise lookup.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// VPTERNLOG computes an arbitrary three-input Boolean function, bit by bit:
+//
+//   for every bit j:  idx    = (A[j] << 2) | (B[j] << 1) | C[j]
+//                     dst[j] = imm8[idx]
+//
+// where A is the destination's old value (zmm1), B is zmm2 and C is zmm3/mem.
+// imm8 is the function's truth table, so imm8 = f(0xF0, 0xCC, 0xAA): those are
+// the columns of A, B and C across the eight table entries.
+//
+// The D/Q suffix changes nothing in the logic. It only sets the element size
+// for the {k1} write-mask and for the embedded broadcast of C (m32bcst/m64bcst).
+// Merge-masking keeps zmm1's old value — which is operand A.
+const SIZES = [
+  { key:'d', name:'D', bytes:4, elemName:'dword', intrin:'epi32' },
+  { key:'q', name:'Q', bytes:8, elemName:'qword', intrin:'epi64' },
+];
+const SIZE_BY_KEY = {};
+for(const s of SIZES) SIZE_BY_KEY[s.key] = s;
+
+// The three operands as 8-bit truth-table columns: entry k has A = bit 2 of k etc.
+const TA = 0xF0, TB = 0xCC, TC = 0xAA;
+
+// Common functions for the imm8 menu. imm8 is computed from the expression.
+const PRESETS = [
+  ['A ? B : C',                   'bitwise select (blend by A)'],
+  ['C ? A : B',                   'bitwise select (blend by C)'],
+  ['A ^ B ^ C',                   'three-way XOR (parity, sum bit)'],
+  ['(A & B) | (A & C) | (B & C)', 'majority (carry bit)'],
+  ['A & B & C',                   'AND of three'],
+  ['A | B | C',                   'OR of three'],
+  ['~(A | B | C)',                'NOR of three'],
+  ['~(A ^ B ^ C)',                'XNOR of three'],
+  ['A & (B | C)',                 ''],
+  ['A | (B & C)',                 ''],
+  ['A ^ (B & C)',                 ''],
+  ['A & ~B',                      'ANDN (C ignored)'],
+  ['~A',                          'NOT (B, C ignored)'],
+  ['1',                           'all ones'],
+  ['0',                           'all zeros'],
+];
+
+function parseHash(h){
+  const m = /^vpternlog(d|q)$/.exec(h.toLowerCase());
+  return m ? { key: m[1] } : null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let SZ;                      // current size descriptor from SIZES
+let N;                       // elements shown
+let kmode = 'off';           // 'off' | 'merge' | 'zero'
+let srcKind = 'reg';         // 'reg' | 'mem' | 'bcst'
+let imm8 = 0xCA;
+let A, B, C, kmask;          // per-element hex strings / mask bits
+let bc;                      // the broadcast element of C (srcKind 'bcst')
+let focusEl = 0;             // element shown in the bit view when nothing is hovered
+let hovEl = -1, hovRow = '', hovBit = -1, hovTT = -1;
+let cells;
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hex2(v){ return v.toString(16).toUpperCase().padStart(2, '0'); }
+function hexW(){ return SZ.bytes * 2; }
+function elemBits(){ return SZ.bytes * 8; }
+function vecBits(){ return N * elemBits(); }
+function regName(){ const b = vecBits(); return b === 128 ? 'xmm' : b === 256 ? 'ymm' : 'zmm'; }
+function widthsFor(){ return [128, 256, 512].map(b => b / elemBits()); }
+function cols(){ return Math.min(N, 256 / elemBits()); }
+function zeroStr(){ return '0'.repeat(hexW()); }
+function normHex(raw){
+  const s = raw.trim().replace(/^0x/i, '').replace(/[\s_]/g, '');
+  if(!/^[0-9a-fA-F]+$/.test(s) || s.length > hexW()) return null;
+  return s.toUpperCase().padStart(hexW(), '0');
+}
+function fillHex(b){ return hex2(b).repeat(SZ.bytes); }
+
+function bitOf(h, j){ return (parseInt(h[h.length - 1 - (j >> 2)], 16) >> (j & 3)) & 1; }
+function flipBit(h, j){
+  const p = h.length - 1 - (j >> 2);
+  const d = parseInt(h[p], 16) ^ (1 << (j & 3));
+  return h.slice(0, p) + d.toString(16).toUpperCase() + h.slice(p + 1);
+}
+
+function cOf(i){ return srcKind === 'bcst' ? bc : C[i]; }
+function idxOf(a, b, c){ return (a << 2) | (b << 1) | c; }
+function lookup(k){ return (imm8 >> k) & 1; }
+
+// Apply the ternary function nibble by nibble.
+function ternHex(a, b, c){
+  let out = '';
+  for(let p = 0; p < a.length; p++){
+    const x = parseInt(a[p], 16), y = parseInt(b[p], 16), z = parseInt(c[p], 16);
+    let r = 0;
+    for(let q = 0; q < 4; q++) r |= lookup(idxOf((x >> q) & 1, (y >> q) & 1, (z >> q) & 1)) << q;
+    out += r.toString(16).toUpperCase();
+  }
+  return out;
+}
+function result(i){ return ternHex(A[i], B[i], cOf(i)); }
+function writes(i){ return kmode === 'off' || !!kmask[i]; }
+function dstVal(i){ return writes(i) ? result(i) : kmode === 'zero' ? zeroStr() : A[i]; }
+
+// imm8 text entry: hex by default, 0b / 0d prefixes for binary / decimal.
+function parseImm(raw){
+  const s = String(raw).trim().toLowerCase().replace(/[\s_]/g, '');
+  let v;
+  if(/^0b[01]+$/.test(s))                v = parseInt(s.slice(2), 2);
+  else if(/^0d[0-9]+$/.test(s))          v = parseInt(s.slice(2), 10);
+  else if(/^(0x)?[0-9a-f]+h?$/.test(s))  v = parseInt(s.replace(/^0x/, '').replace(/h$/, ''), 16);
+  else return null;
+  return (v >= 0 && v <= 0xFF) ? v : null;
+}
+
+// ─── Expressions ────────────────────────────────────────────────────────────
+// Evaluate a C-style expression over A, B, C on the truth-table columns, which
+// yields its imm8 directly. Precedence: ~ ! > & > ^ > | > ?: . Returns null on error.
+function evalExpr(src){
+  const toks = [];
+  const re = /\s*(?:([abc01])|([~!&^|?:()]))/iy;
+  let m;
+  src = src.trim();
+  re.lastIndex = 0;
+  while(re.lastIndex < src.length){
+    const at = re.lastIndex;
+    m = re.exec(src);
+    if(!m || m.index !== at) return null;
+    toks.push((m[1] || m[2]).toUpperCase());
+    if(/^\s*$/.test(src.slice(re.lastIndex))) break;
+  }
+  if(!toks.length) return null;
+  let p = 0;
+  const peek = () => toks[p];
+  function ternary(){
+    const c = or();
+    if(peek() !== '?') return c;
+    p++;
+    const t = ternary();
+    if(toks[p++] !== ':') throw 0;
+    const f = ternary();
+    return (c & t) | (~c & f & 0xFF);
+  }
+  function or(){ let v = xor(); while(peek() === '|'){ p++; v |= xor(); } return v; }
+  function xor(){ let v = and(); while(peek() === '^'){ p++; v ^= and(); } return v; }
+  function and(){ let v = unary(); while(peek() === '&'){ p++; v &= unary(); } return v; }
+  function unary(){
+    if(peek() === '~' || peek() === '!'){ p++; return ~unary() & 0xFF; }
+    const t = toks[p++];
+    if(t === 'A') return TA;
+    if(t === 'B') return TB;
+    if(t === 'C') return TC;
+    if(t === '0') return 0x00;
+    if(t === '1') return 0xFF;
+    if(t === '('){ const v = ternary(); if(toks[p++] !== ')') throw 0; return v; }
+    throw 0;
+  }
+  try {
+    const v = ternary();
+    return p === toks.length ? v : null;
+  } catch(e){ return null; }
+}
+
+// Shortest expression for each of the 256 functions, found by building
+// expressions with more and more operators (& | ^ and x ? y : z; negation is
+// free). Ties go to fewer negations, then the shorter string, then the one that
+// reads in A, B, C order.
+const SHORTEST = (() => {
+  const best = new Array(256).fill(null);
+  const nNeg = s => s.split('~').length - 1;
+  function better(s, ops, b){
+    if(ops !== b.ops) return ops < b.ops;
+    const dn = nNeg(s) - nNeg(b.s);
+    if(dn) return dn < 0;
+    if(s.length !== b.s.length) return s.length < b.s.length;
+    return bare(s) < bare(b.s);
+  }
+  const bare = s => s.replace(/[()~ ]/g, '');
+  function add(t, s, ops, op){
+    if(best[t] && !better(s, ops, best[t])) return;
+    best[t] = { s, ops, op };
+  }
+  // op: '' for an atom (no parentheses needed), else the top-level operator.
+  // A chain of the same associative operator needs no inner parentheses.
+  const wrap = (e, op) => !e.op || e.op === op ? e.s : `(${e.s})`;
+  const neg  = e => '~' + wrap(e, '');
+  add(0x00, '0', 0, ''); add(0xFF, '1', 0, '');
+  for(const [n, t] of [['A', TA], ['B', TB], ['C', TC]]){ add(t, n, 0, ''); add(~t & 0xFF, '~' + n, 0, ''); }
+  const byOps = [];
+  const collect = L => { byOps[L] = []; for(let t = 0; t < 256; t++) if(best[t] && best[t].ops === L) byOps[L].push(t); };
+  collect(0);
+  for(let L = 1; L < 8 && best.some(b => !b); L++){
+    for(let i = 0; i < L; i++){
+      for(const x of byOps[i]) for(const y of byOps[L - 1 - i]){
+        const ex = best[x], ey = best[y];
+        add(x & y, `${wrap(ex, '&')} & ${wrap(ey, '&')}`, L, '&');
+        add(x | y, `${wrap(ex, '|')} | ${wrap(ey, '|')}`, L, '|');
+        add(x ^ y, `${wrap(ex, '^')} ^ ${wrap(ey, '^')}`, L, '^');
+      }
+      for(let j = 0; i + j < L; j++){
+        const k = L - 1 - i - j;
+        for(const x of byOps[i]) for(const y of byOps[j]) for(const z of byOps[k]){
+          if(x === 0 || x === 0xFF || y === z) continue;
+          if(y === 0 || y === 0xFF || z === 0 || z === 0xFF) continue;   // that is just & or | with a negation
+          add((x & y) | (~x & z & 0xFF), `${wrap(best[x], '')} ? ${wrap(best[y], '')} : ${wrap(best[z], '')}`, L, '?');
+        }
+      }
+    }
+    collect(L);
+    for(const t of byOps[L]) add(~t & 0xFF, neg(best[t]), L, '');
+    collect(L);
+  }
+  return best.map(b => b.s);
+})();
+
+const PRESET_NAME = {};
+for(const [e, name] of PRESETS) if(name) PRESET_NAME[evalExpr(e)] = name;
+
+// ─── Seed data ──────────────────────────────────────────────────────────────
+// Deterministic noise, so every element's bit view shows a real mix of entries.
+function noiseHex(seed){
+  let x = (seed * 2654435761) >>> 0 || 1, s = '';
+  for(let k = 0; k < hexW(); k++){
+    x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
+    s += (x & 15).toString(16).toUpperCase();
+  }
+  return s;
+}
+function seedA(i){ return noiseHex(101 + i * 3); }
+function seedB(i){ return noiseHex(211 + i * 5); }
+function seedC(i){ return noiseHex(307 + i * 7); }
+
+function resizeTo(newN){
+  for(let i = A.length; i < newN; i++){ A.push(seedA(i)); B.push(seedB(i)); C.push(seedC(i)); kmask.push(i % 3 === 2 ? 0 : 1); }
+  N = newN;
+  if(focusEl >= N) focusEl = 0;
+}
+
+// ─── Metadata ───────────────────────────────────────────────────────────────
+function maskSuffix(){ return kmode === 'off' ? '' : kmode === 'merge' ? '{k1}' : '{k1}{z}'; }
+function cOperand(){
+  return srcKind === 'reg' ? regName() + '3' : srcKind === 'mem' ? 'm' + vecBits() : `m${elemBits()}bcst`;
+}
+function instrTitle(){ const r = regName(); return `VPTERNLOG${SZ.name} ${r}1${maskSuffix()}, ${r}2, ${cOperand()}, imm8`; }
+function isaLabel(){ return vecBits() === 512 ? 'AVX-512F' : 'AVX-512F+VL'; }
+function intrinsic(){
+  const p = vecBits() === 128 ? '_mm' : '_mm' + vecBits();
+  const f = `ternarylogic_${SZ.intrin}`;
+  return kmode === 'off'   ? `${p}_${f}(a, b, c, imm8)`
+       : kmode === 'merge' ? `${p}_mask_${f}(a, k, b, c, imm8)`
+                           : `${p}_maskz_${f}(k, a, b, c, imm8)`;
+}
+function instrSubtitle(){
+  const r = regName(), e = SZ.elemName;
+  const maskNote = kmode === 'merge' ? ` With <code>{k1}</code> merge-masking a masked-off ${e} keeps ${r}1's old value — which is operand A itself.`
+                 : kmode === 'zero'  ? ` With <code>{k1}{z}</code> a masked-off ${e} is zeroed.` : '';
+  const bcNote = srcKind === 'bcst' ? ` With <code>m${elemBits()}bcst</code> one ${e} from memory is used as C for every element.` : '';
+  return `Any Boolean function of three inputs, applied bit by bit. For each bit j, A = <code>${r}1</code> (the destination's old value), B = <code>${r}2</code> and C = <code>${cOperand()}</code> ` +
+         `form the index <code>(A[j] &lt;&lt; 2) | (B[j] &lt;&lt; 1) | C[j]</code>, and <code>dst[j] = imm8[index]</code>. imm8 is the truth table — ` +
+         `to get it for an expression, evaluate the expression on <code>A = 0xF0, B = 0xCC, C = 0xAA</code>. ` +
+         `The ${SZ.name} suffix does not change the logic; it only sets the ${e} granularity of the write-mask and of the embedded broadcast.${maskNote}${bcNote} ` +
+         `Intrinsic: <code>${intrinsic()}</code>.`;
+}
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function selectSize(key){
+  SZ = SIZE_BY_KEY[key] || SIZES[0];
+  A = []; B = []; C = []; kmask = [];
+  bc = fillHex(TC);
+  focusEl = 0;
+  resizeTo(widthsFor()[0]);
+  clearHover(); resetInfo();
+  closePopup(); closeImmMenu();
+  rebuildWidthOptions();
+  rebuildSrcKindOptions();
+  build();
+  updatePresentation();
+  render();
+  syncImmInput(true);
+  syncExpr(true);
+}
+
+function rebuildWidthOptions(){
+  const s = document.getElementById('width');
+  s.innerHTML = '';
+  for(const w of widthsFor()){
+    const opt = document.createElement('option');
+    const bits = w * elemBits();
+    opt.value = w;
+    opt.textContent = `${bits === 128 ? 'XMM' : bits === 256 ? 'YMM' : 'ZMM'} (${bits})`;
+    s.appendChild(opt);
+  }
+  s.value = N;
+}
+
+function rebuildSrcKindOptions(){
+  const s = document.getElementById('srckind');
+  s.innerHTML = '';
+  for(const [v, label] of [['reg', regName() + '3'], ['mem', 'm' + vecBits()], ['bcst', `m${elemBits()}bcst`]]){
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = label;
+    s.appendChild(opt);
+  }
+  s.value = srcKind;
+}
+
+function changeWidth(w){
+  const newN = parseInt(w);
+  if(newN === N) return;
+  clearHover(); closePopup(); resetInfo();
+  resizeTo(newN);
+  rebuildSrcKindOptions();
+  build(); updatePresentation(); render();
+}
+
+function changeKmaskMode(m){
+  if(m === kmode) return;
+  kmode = m;
+  updatePresentation(); render(); updateInfo();
+}
+
+function changeSrcKind(k){
+  if(k === srcKind) return;
+  srcKind = k;
+  closePopup();
+  updatePresentation(); render(); updateInfo();
+}
+
+function setImm(v){
+  imm8 = v & 0xFF;
+  render(); updateInfo();
+}
+
+function syncBadges(){
+  document.getElementById('isa-badge').textContent = isaLabel();
+  document.getElementById('width-badge').textContent = `${vecBits()}-bit ${regName().toUpperCase()}`;
+}
+
+function updatePresentation(){
+  const r = regName(), e = SZ.elemName;
+  document.title = `VPTERNLOG${SZ.name} — Interactive Ternary Logic Visualiser`;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === SZ.key));
+  document.getElementById('width').value = N;
+  document.getElementById('kmode').value = kmode;
+  document.getElementById('srckind').value = srcKind;
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('isa-ref').href = 'https://www.felixcloutier.com/x86/vpternlogd:vpternlogq';
+  document.getElementById('kmask-row').hidden = kmode === 'off';
+
+  document.getElementById('a-hint').textContent = `${r}1 before the instruction — index bit 2 · click a ${e} to edit and inspect its bits`;
+  document.getElementById('b-hint').textContent = `${r}2 — index bit 1 · click to edit`;
+  document.getElementById('c-hint').textContent =
+    srcKind === 'reg' ? `${r}3 — index bit 0 · click to edit`
+    : srcKind === 'mem' ? `m${vecBits()} — index bit 0, loaded from memory · click to edit`
+    : `m${elemBits()}bcst — one ${e} from memory, repeated for every element · click to edit`;
+  document.getElementById('kmask-hint').textContent = kmode === 'zero'
+    ? `click to toggle 0/1 — 0 zeroes the output ${e}`
+    : `click to toggle 0/1 — 0 keeps ${r}1's old ${e} (= A)`;
+  document.getElementById('dst-hint').textContent = `${r}1 after — dst[j] = imm8[(A[j]<<2)|(B[j]<<1)|C[j]] for every bit` +
+    (kmode === 'off' ? '' : kmode === 'zero' ? ` · masked-off ${e}s zeroed` : ` · masked-off ${e}s keep A`) +
+    ' · click to pin in the bit view';
+  document.getElementById('tt-hint').textContent =
+    'column k is imm8 bit k · its A B C are the bits of k, i.e. of 0xF0, 0xCC, 0xAA · click an imm8 bit to toggle it';
+  syncBadges();
+  if(location.hash !== '#vpternlog' + SZ.key) history.replaceState(null, '', '#vpternlog' + SZ.key);
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+function makeCell(idxLabel){
+  const el = document.createElement('div');
+  el.innerHTML = `<span class="cell-idx">${idxLabel}</span><span class="cell-val"></span>`;
+  el._idx = el.firstChild;
+  el._val = el.lastChild;
+  return el;
+}
+function makeDiv(cls, text){
+  const el = document.createElement('div');
+  el.className = cls;
+  if(text !== undefined) el.textContent = text;
+  return el;
+}
+
+function build(){
+  closePopup();
+  cells = { A: [], B: [], C: [], k: [], dst: [], tt: {}, bits: {} };
+
+  const rows = [
+    ['A', 'a-grid', A],
+    ['B', 'b-grid', B],
+    ['C', 'c-grid', C],
+  ];
+  for(const [name, id, arr] of rows){
+    const g = document.getElementById(id);
+    g.style.setProperty('--cols', cols());
+    g.innerHTML = '';
+    for(let i = 0; i < N; i++){
+      const el = makeCell(`[${i}]`);
+      el.onclick = () => {
+        focusEl = i;
+        if(name === 'C' && srcKind === 'bcst')
+          openSrcPopup(() => bc, v => { bc = v; }, `m${elemBits()}bcst`, el, g);
+        else
+          openSrcPopup(() => arr[i], v => { arr[i] = v; }, `${name}[${i}]`, el, g);
+        render();
+      };
+      wireHover(el, () => { hovEl = i; hovRow = name; });
+      g.appendChild(el);
+      cells[name].push(el);
+    }
+  }
+
+  const kG = document.getElementById('kmask-grid');
+  kG.style.setProperty('--cols', cols());
+  kG.innerHTML = '';
+  for(let i = 0; i < N; i++){
+    const el = makeCell(`[${i}]`);
+    el.onclick = () => { kmask[i] = kmask[i] ? 0 : 1; focusEl = i; render(); updateInfo(); };
+    wireHover(el, () => { hovEl = i; hovRow = 'k'; });
+    kG.appendChild(el);
+    cells.k.push(el);
+  }
+
+  const dG = document.getElementById('dst-grid');
+  dG.style.setProperty('--cols', cols());
+  dG.innerHTML = '';
+  for(let i = 0; i < N; i++){
+    const el = makeCell(`[${i}]`);
+    el.onclick = () => { focusEl = i; render(); };
+    wireHover(el, () => { hovEl = i; hovRow = 'dst'; });
+    dG.appendChild(el);
+    cells.dst.push(el);
+  }
+
+  buildTT();
+  buildBits();
+}
+
+// Truth table: one column per imm8 bit, bit 7 on the left like the number is written.
+function buildTT(){
+  const g = document.getElementById('tt-grid');
+  g.innerHTML = '';
+  const tt = cells.tt = { hdr: [], A: [], B: [], C: [], f: [], n: [] };
+  const rowDefs = [['hdr', 'entry'], ['A', 'A'], ['B', 'B'], ['C', 'C'], ['f', 'imm8'], ['n', 'uses']];
+  for(const [key, label] of rowDefs){
+    g.appendChild(makeDiv('blbl', label));
+    for(let k = 7; k >= 0; k--){
+      const el = makeDiv('bit');
+      if(key === 'f'){
+        el.classList.add('click');
+        el.onclick = () => { setImm(imm8 ^ (1 << k)); syncImmInput(true); syncExpr(true); };
+      }
+      wireHover(el, () => { hovTT = k; });
+      g.appendChild(el);
+      tt[key][k] = el;
+    }
+  }
+  for(let k = 0; k < 8; k++){
+    tt.hdr[k].classList.add('hue');
+    tt.hdr[k].style.setProperty('--h', HUES[k]);
+    tt.hdr[k].textContent = k;
+    tt.A[k].textContent = (k >> 2) & 1;
+    tt.B[k].textContent = (k >> 1) & 1;
+    tt.C[k].textContent = k & 1;
+    tt.A[k].classList.toggle('a1', !!((k >> 2) & 1));
+    tt.B[k].classList.toggle('b1', !!((k >> 1) & 1));
+    tt.C[k].classList.toggle('c1', !!(k & 1));
+  }
+}
+const HUES = [0, 30, 55, 105, 165, 200, 250, 300];
+
+// Bit view: the selected element's A/B/C bits, the entry each bit column selects
+// and the resulting bit, 32 bits per block (qwords take two blocks).
+function buildBits(){
+  const wrap = document.getElementById('bits-wrap');
+  wrap.innerHTML = '';
+  const bits = cells.bits = { A: [], B: [], C: [], idx: [], f: [] };
+  const blocks = elemBits() / 32;
+  for(let blk = blocks - 1; blk >= 0; blk--){
+    const g = makeDiv('bgrid bit-grid');
+    if(blk !== blocks - 1) g.style.marginTop = '10px';
+    g.appendChild(makeDiv('blbl', ''));
+    for(let j = blk * 32 + 31; j >= blk * 32; j--) g.appendChild(makeDiv('bhdr', j));
+    for(const [key, label] of [['A', 'A'], ['B', 'B'], ['C', 'C'], ['idx', 'idx'], ['f', 'f']]){
+      g.appendChild(makeDiv('blbl', label));
+      for(let j = blk * 32 + 31; j >= blk * 32; j--){
+        const el = makeDiv('bit');
+        if(j % 8 === 7 && j % 32 !== 31) el.classList.add('bsep');
+        if(key === 'A' || key === 'B' || key === 'C'){
+          el.classList.add('click');
+          el.onclick = () => { flipOperandBit(key, viewEl(), j); render(); updateInfo(); };
+        }
+        wireHover(el, () => { hovBit = j; });
+        g.appendChild(el);
+        bits[key][j] = el;
+      }
+    }
+    // the header cells line up with the separators too
+    [...g.querySelectorAll('.bhdr')].forEach((h, n) => { const j = blk * 32 + 31 - n; if(j % 8 === 7 && j % 32 !== 31) h.style.marginLeft = '5px'; });
+    wrap.appendChild(g);
+  }
+}
+
+function flipOperandBit(name, i, j){
+  if(name === 'A') A[i] = flipBit(A[i], j);
+  else if(name === 'B') B[i] = flipBit(B[i], j);
+  else if(srcKind === 'bcst') bc = flipBit(bc, j);
+  else C[i] = flipBit(C[i], j);
+}
+
+function clearHover(){ hovEl = -1; hovRow = ''; hovBit = -1; hovTT = -1; }
+function wireHover(el, setHov){
+  el.addEventListener('mouseenter', () => { clearHover(); setHov(); renderBits(); refreshHover(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { clearHover(); renderBits(); refreshHover(); resetInfo(); });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function viewEl(){ return hovEl >= 0 ? hovEl : focusEl; }
+
+function render(){
+  for(let i = 0; i < N; i++){
+    const a = cells.A[i], b = cells.B[i], c = cells.C[i];
+    a._val.textContent = '0x' + A[i];
+    b._val.textContent = '0x' + B[i];
+    c._val.textContent = '0x' + cOf(i);
+    a.className = 'cell a-cell';
+    b.className = 'cell b-cell';
+    c.className = 'cell c-cell' + (srcKind === 'bcst' ? ' bcst' : '');
+    c._idx.textContent = srcKind === 'bcst' ? `[${i}] ← bcst` : `[${i}]`;
+    a.title = `A[${i}] = 0x${A[i]} (${regName()}1 before) — click to edit`;
+    b.title = `B[${i}] = 0x${B[i]} (${regName()}2) — click to edit`;
+    c.title = srcKind === 'bcst' ? `C[${i}] = 0x${bc} — the broadcast ${SZ.elemName}, shared by every element — click to edit`
+                                 : `C[${i}] = 0x${C[i]} (${cOperand()}) — click to edit`;
+
+    const d = cells.dst[i];
+    const w = writes(i);
+    d._val.textContent = '0x' + dstVal(i);
+    d.className = 'cell ' + (w ? 'dst-res' : kmode === 'zero' ? 'dst-zer' : 'dst-keep');
+    d.title = w ? `dst[${i}] = f(A[${i}], B[${i}], C[${i}]) = 0x${result(i)}`
+                : kmode === 'zero' ? `dst[${i}] = 0 — k1[${i}] = 0, zeroed` : `dst[${i}] = A[${i}] = 0x${A[i]} — k1[${i}] = 0, kept`;
+
+    const k = cells.k[i];
+    k.className = 'cell km-cell' + (kmask[i] ? '' : ' km-off');
+    k._val.textContent = kmask[i] ? 1 : 0;
+    k.title = `k1[${i}] = ${kmask[i]} → ${kmask[i] ? 'write f(A, B, C)' : kmode === 'zero' ? 'zero' : 'keep A'}`;
+  }
+  for(let k = 0; k < 8; k++){
+    const f = lookup(k);
+    const el = cells.tt.f[k];
+    el.textContent = f;
+    el.className = 'bit click ' + (f ? 'i1' : 'i0');
+    el.title = `imm8 bit ${k} = ${f}: A=${(k>>2)&1} B=${(k>>1)&1} C=${k&1} → ${f} — click to toggle`;
+  }
+  renderBits();
+  refreshHover();
+  syncImmInput();
+  syncExpr();
+}
+
+function renderBits(){
+  const e = viewEl();
+  const a = A[e], b = B[e], c = cOf(e);
+  const w = writes(e);
+  const counts = new Array(8).fill(0);
+  for(let j = 0; j < elemBits(); j++){
+    const x = bitOf(a, j), y = bitOf(b, j), z = bitOf(c, j), k = idxOf(x, y, z), f = lookup(k);
+    counts[k]++;
+    const sep = j % 8 === 7 && j % 32 !== 31 ? ' bsep' : '';
+    const B_ = cells.bits;
+    B_.A[j].className = 'bit click' + sep + (x ? ' a1' : ''); B_.A[j].textContent = x;
+    B_.B[j].className = 'bit click' + sep + (y ? ' b1' : ''); B_.B[j].textContent = y;
+    B_.C[j].className = 'bit click' + sep + (z ? ' c1' : ''); B_.C[j].textContent = z;
+    B_.idx[j].className = 'bit hue' + sep; B_.idx[j].textContent = k; B_.idx[j].style.setProperty('--h', HUES[k]);
+    B_.f[j].className = 'bit' + sep + (f ? ' f1' : ' f0') + (w ? '' : ' dim'); B_.f[j].textContent = f;
+    B_.idx[j].title = B_.f[j].title = `bit ${j}: A=${x} B=${y} C=${z} → entry ${k} → imm8[${k}] = ${f}`;
+  }
+  for(let k = 0; k < 8; k++){
+    const el = cells.tt.n[k];
+    el.textContent = '×' + counts[k];
+    el.title = `${counts[k]} of the ${elemBits()} bits of element [${e}] look up entry ${k}`;
+    el.style.color = counts[k] ? '' : 'var(--border2)';
+  }
+  const r = regName();
+  document.getElementById('bits-title').textContent = `Bits of element [${e}]`;
+  document.getElementById('bits-hint').textContent =
+    (w ? `dst[${e}] = 0x${result(e)}`
+       : `k1[${e}] = 0 — the result below is discarded, dst[${e}] ${kmode === 'zero' ? 'is zeroed' : `keeps A = 0x${A[e]}`}`) +
+    ` · hover an element above to inspect it, click to pin · click an A/B/C bit to flip it`;
+}
+
+function refreshHover(){
+  const e = viewEl();
+  for(let i = 0; i < N; i++){
+    const on = i === hovEl;
+    cells.A[i].classList.toggle('lit', on);
+    cells.B[i].classList.toggle('lit', on);
+    cells.C[i].classList.toggle('lit', on || (srcKind === 'bcst' && hovRow === 'C' && hovEl >= 0));
+    cells.k[i].classList.toggle('active', on);
+    cells.dst[i].style.boxShadow = on ? '0 0 0 3px #639922' : '';
+    cells.dst[i].classList.toggle('pinned', i === focusEl);
+  }
+  // Which truth-table entry is in play: the hovered one, or the one the hovered bit selects.
+  let k = hovTT;
+  if(hovBit >= 0) k = idxOf(bitOf(A[e], hovBit), bitOf(B[e], hovBit), bitOf(cOf(e), hovBit));
+  for(let q = 0; q < 8; q++)
+    for(const row of ['hdr', 'A', 'B', 'C', 'f', 'n']) cells.tt[row][q].classList.toggle('hl', q === k);
+  for(let j = 0; j < elemBits(); j++){
+    const col = hovBit >= 0 ? j === hovBit
+              : hovTT >= 0 ? idxOf(bitOf(A[e], j), bitOf(B[e], j), bitOf(cOf(e), j)) === hovTT : false;
+    for(const row of ['A', 'B', 'C', 'idx', 'f']) cells.bits[row][j].classList.toggle('hl', col);
+  }
+}
+
+// Mirror imm8 into the text box and its annotation.
+function syncImmInput(force){
+  const el = document.getElementById('imm-input');
+  document.getElementById('imm-note').innerHTML = [
+    `imm8 = <strong>0x${hex2(imm8)}</strong>`,
+    '0b' + imm8.toString(2).padStart(8, '0'),
+    String(imm8),
+  ].join(' · ');
+  markImmMenu();
+  if(!force && document.activeElement === el) return;
+  el.value = '0x' + hex2(imm8);
+  el.classList.remove('bad');
+}
+// Mirror imm8 into the expression box, unless the user is typing in it.
+function syncExpr(force){
+  const el = document.getElementById('expr-input');
+  const name = PRESET_NAME[imm8];
+  const typed = document.activeElement === el && !force;
+  let note = name ? `— ${name}` : '';
+  if(typed && evalExpr(el.value) === imm8 && el.value.replace(/\s/g, '') !== SHORTEST[imm8].replace(/\s/g, ''))
+    note = `= <code>${SHORTEST[imm8]}</code> ${note}`;
+  document.getElementById('expr-note').innerHTML = note;
+  if(typed) return;
+  el.value = SHORTEST[imm8];
+  el.classList.remove('bad');
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to trace the bitwise lookup.'; }
+
+function fnText(){ return `<code>${SHORTEST[imm8]}</code> (imm8 = 0x${hex2(imm8)})`; }
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  const e = viewEl();
+
+  if(hovBit >= 0){
+    const j = hovBit, x = bitOf(A[e], j), y = bitOf(B[e], j), z = bitOf(cOf(e), j), k = idxOf(x, y, z), f = lookup(k);
+    box.innerHTML = `<strong>Bit ${j} of element [${e}]</strong>: A = ${x}, B = ${y}, C = ${z} &rarr; index <code>${x}${y}${z}b = ${k}</code> &rarr; ` +
+      `<strong>imm8[${k}] = ${f}</strong>` + (writes(e) ? ` &rarr; dst[${e}] bit ${j} = ${f}.` : `, but k1[${e}] = 0 so the result is ${kmode === 'zero' ? 'zeroed' : 'discarded and A is kept'}.`) +
+      ` Click an A/B/C bit to flip it.`;
+    return;
+  }
+
+  if(hovTT >= 0){
+    const k = hovTT, f = lookup(k);
+    const n = (() => { let c = 0; for(let j = 0; j < elemBits(); j++) if(idxOf(bitOf(A[e], j), bitOf(B[e], j), bitOf(cOf(e), j)) === k) c++; return c; })();
+    box.innerHTML = `<strong>Entry ${k}</strong>: wherever A = ${(k>>2)&1}, B = ${(k>>1)&1}, C = ${k&1}, the result bit is <strong>imm8 bit ${k} = ${f}</strong>. ` +
+      `${n} of the ${elemBits()} bits of element [${e}] hit this entry (highlighted below). Click the imm8 bit to toggle it.`;
+    return;
+  }
+
+  if(hovEl >= 0){
+    const i = hovEl;
+    const res = result(i);
+    const bcNote = srcKind === 'bcst' ? ` (C is the broadcast m${elemBits()})` : '';
+    if(hovRow === 'k'){
+      box.innerHTML = kmask[i]
+        ? `<strong>k1[${i}] = 1</strong> — dst[${i}] is written with f(A, B, C) = <strong>0x${res}</strong>.`
+        : `<strong>k1[${i}] = 0</strong> — the result 0x${res} is dropped; dst[${i}] ${kmode === 'zero' ? 'is <strong>zeroed</strong>' : `<strong>keeps A[${i}] = 0x${A[i]}</strong>, ${regName()}1's old value`}. Click to toggle.`;
+      return;
+    }
+    const tail = writes(i) ? `<strong>dst[${i}] = 0x${res}</strong>`
+      : `0x${res}, but k1[${i}] = 0 &rarr; <strong>dst[${i}] = 0x${dstVal(i)}</strong> (${kmode === 'zero' ? 'zeroed' : 'A kept'})`;
+    box.innerHTML = `Element [${i}]: f(A = 0x${A[i]}, B = 0x${B[i]}, C = 0x${cOf(i)})${bcNote} with f = ${fnText()} &rarr; ${tail}. ` +
+      `Its bits are shown below.`;
+    return;
+  }
+
+  resetInfo();
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openSrcPopup(get, set, label, el, grid){
+  closePopup();
+  const gRect = grid.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  grid.style.position = 'relative';
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup';
+  pop.style.left = (eRect.left + eRect.width/2 - gRect.left) + 'px';
+  pop.style.bottom = (gRect.bottom - eRect.top + 6) + 'px';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl'; lbl.textContent = label;
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = '0x' + get(); inp.placeholder = '0x' + '0'.repeat(hexW());
+  const commit = raw => { const v = normHex(raw); if(v !== null){ set(v); render(); } closePopup(); };
+  inp.onkeydown = ev => {
+    if(ev.key === 'Enter') commit(inp.value);
+    if(ev.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => commit(inp.value);
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  for(const b of [0x00, 0xFF, TA, TB, TC, 0x0F]){
+    const btn = document.createElement('button');
+    btn.textContent = '0x' + fillHex(b);
+    btn.onclick = () => commit(fillHex(b));
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  grid.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(ev){ if(!pop.contains(ev.target) && ev.target !== el && !el.contains(ev.target)) closePopup(); }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── imm8 combobox ──────────────────────────────────────────────────────────
+function rebuildImmPresets(){
+  const menu = document.getElementById('imm-menu');
+  menu.innerHTML = '';
+  for(const [expr, name] of PRESETS){
+    const v = evalExpr(expr);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.v = v;
+    b.innerHTML = `<span>${expr}${name ? ` <span class="mv">· ${name}</span>` : ''}</span><span class="mv">0x${hex2(v)}</span>`;
+    b.onclick = () => { closeImmMenu(); setImm(v); syncImmInput(true); syncExpr(true); };
+    menu.appendChild(b);
+  }
+  markImmMenu();
+}
+function markImmMenu(){
+  document.querySelectorAll('#imm-menu button').forEach(b => b.classList.toggle('sel', parseInt(b.dataset.v) === imm8));
+}
+function immMenuOutside(e){
+  if(!document.getElementById('imm-combo').contains(e.target)) closeImmMenu();
+}
+function openImmMenu(){
+  const menu = document.getElementById('imm-menu');
+  if(!menu.hidden) return;
+  markImmMenu();
+  menu.hidden = false;
+  document.getElementById('imm-caret').setAttribute('aria-expanded', 'true');
+  document.addEventListener('mousedown', immMenuOutside);
+}
+function closeImmMenu(){
+  const menu = document.getElementById('imm-menu');
+  if(menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('imm-caret').setAttribute('aria-expanded', 'false');
+  document.removeEventListener('mousedown', immMenuOutside);
+}
+
+const immInput = document.getElementById('imm-input');
+immInput.addEventListener('input', () => {
+  if(/^\s*0[bd]\s*$/i.test(immInput.value)) return;   // unfinished binary/decimal prefix, not hex 0x0B/0x0D
+  const v = parseImm(immInput.value);
+  immInput.classList.toggle('bad', v === null);
+  if(v !== null && v !== imm8){ setImm(v); syncExpr(true); }
+});
+immInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){ const v = parseImm(immInput.value); if(v !== null) setImm(v); syncImmInput(true); syncExpr(true); immInput.select(); return; }
+  if(e.key === 'Escape'){ closeImmMenu(); syncImmInput(true); immInput.blur(); return; }
+  if(e.altKey && e.key === 'ArrowDown'){ e.preventDefault(); openImmMenu(); return; }
+  if(e.key === 'ArrowUp' || e.key === 'ArrowDown'){
+    e.preventDefault();
+    const step = (e.shiftKey ? 16 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+    setImm(Math.max(0, Math.min(0xFF, imm8 + step)));
+    syncImmInput(true); syncExpr(true);
+  }
+});
+immInput.addEventListener('focus', () => immInput.select());
+immInput.addEventListener('blur',  () => syncImmInput(true));
+document.getElementById('imm-caret').addEventListener('click', () => {
+  if(document.getElementById('imm-menu').hidden) openImmMenu(); else closeImmMenu();
+});
+
+// ─── Expression box ─────────────────────────────────────────────────────────
+const exprInput = document.getElementById('expr-input');
+exprInput.addEventListener('input', () => {
+  const v = evalExpr(exprInput.value);
+  exprInput.classList.toggle('bad', v === null);
+  if(v !== null){ setImm(v); syncImmInput(true); }
+});
+exprInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter' || e.key === 'Escape'){ syncExpr(true); exprInput.blur(); }
+});
+exprInput.addEventListener('blur', () => syncExpr(true));
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const s of SIZES){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = s.key;
+  btn.textContent = 'VPTERNLOG' + s.name;
+  btn.title = `VPTERNLOG${s.name} — ternary logic, ${s.elemName}-granular write-mask and broadcast`;
+  btn.addEventListener('click', () => selectSize(s.key));
+  tabBar.appendChild(btn);
+}
+rebuildImmPresets();
+window.addEventListener('hashchange', () => {
+  const p = parseHash(location.hash.replace(/^#/, ''));
+  if(p && p.key !== SZ.key) selectSize(p.key);
+});
+
+const initial = parseHash(location.hash.replace(/^#/, ''));
+selectSize(initial ? initial.key : 'd');
+</script>
+</body>
+</html>
