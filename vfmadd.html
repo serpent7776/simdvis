@@ -1,0 +1,1590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VFMADD132SD / VFMADD213SD / VFMADD231SD — Interactive Fused Multiply-Add Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+    /* bit-diagram row colours */
+    --c-xy: #5F5E5A;
+    --c-r1: #378ADD;
+    --c-r2: #2E8B87;
+    --c-r3: #C2477A;
+    --c-sum: #1a1a18;
+    --c-f: #639922;
+    --c-p: #BA7517;
+    --c-bad: #D94040;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --c-xy: #B4B2A9;
+      --c-sum: #e8e6df;
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 920px;
+    min-width: 0;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; font-family: var(--font-mono); }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; line-height: 1.6; }
+  .subtitle code, .note code { font-family: var(--font-mono); font-size: 11px; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bt { background: #B9E4E2; color: #0A3E3B; }
+  .br { background: #F4C6D7; color: #4A0D26; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bt { background: #0E4B47; color: #B9E4E2; }
+    .br { background: #5A1030; color: #F4C6D7; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  .reg-grid { display: grid; grid-template-columns: repeat(var(--cols, 2), 1fr); column-gap: 3px; row-gap: 6px; position: relative; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .15s, box-shadow .15s;
+    min-width: 0; position: relative; height: 56px; padding: 0 6px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .6; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+  .cell-val { font-size: 12px; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+  .cell-hex { font-size: 9px; font-weight: 400; opacity: .55; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+
+  /* xmm1 (blue), xmm2 (teal), xmm3 / m64 (rose) — the multiply-add roles follow the register */
+  .r1-cell { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .r1-cell:hover { background: #B5D4F4; }
+  .r2-cell { background: #DFF1F0; border-color: #2E8B87; color: #0A3E3B; cursor: pointer; }
+  .r2-cell:hover { background: #B9E4E2; }
+  .r3-cell { background: #FBE8EF; border-color: #C2477A; color: #4A0D26; cursor: pointer; }
+  .r3-cell:hover { background: #F4C6D7; }
+  .r1-cell.idle, .r2-cell.idle, .r3-cell.idle, .km-cell.idle {
+    background: var(--bg2); border-style: dashed; border-color: var(--border2); color: var(--text3);
+  }
+  .r1-cell.idle:hover, .r2-cell.idle:hover, .r3-cell.idle:hover { background: var(--bg3); }
+  .r2-cell.idle .cell-val, .r3-cell.idle .cell-val { text-decoration: line-through; }
+  .lit { box-shadow: 0 0 0 2px #EF9F27; }
+  .r1-cell.lit, .r2-cell.lit, .r3-cell.lit { background: #FAC775; border-color: #EF9F27; color: #412402; }
+
+  .km-cell { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 46px; }
+  .km-cell:hover { background: #D8C9F4; }
+  .km-cell.km-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km-cell.km-off:hover { background: #E4E1D5; }
+  .km-cell.idle { cursor: default; }
+
+  /* dst[0]: written (green) / masked and zeroed / masked and kept; dst[1]: xmm1's upper half (blue) */
+  .dst-res  { background: #EAF3DE; border-color: #639922; color: #173404; cursor: default; }
+  .dst-zer  { background: #F1EFE8; border-color: #888780; color: #5F5E5A; cursor: default; }
+  .dst-keep { background: #F4F0FA; border-color: #8367C7; color: #2A1356; cursor: default; }
+  .dst-up   { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: default; }
+
+  @media (prefers-color-scheme: dark) {
+    .r1-cell { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .r1-cell:hover { background: #185FA5; }
+    .r2-cell { background: #0E4B47; border-color: #2E8B87; color: #B9E4E2; }
+    .r2-cell:hover { background: #14625D; }
+    .r3-cell { background: #5A1030; border-color: #C2477A; color: #F4C6D7; }
+    .r3-cell:hover { background: #761941; }
+    .r1-cell.idle, .r2-cell.idle, .r3-cell.idle, .km-cell.idle { background: var(--bg2); border-color: var(--border2); color: var(--text3); }
+    .r1-cell.idle:hover, .r2-cell.idle:hover, .r3-cell.idle:hover { background: var(--bg3); }
+    .r1-cell.lit, .r2-cell.lit, .r3-cell.lit { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .km-cell { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km-cell:hover { background: #4F2D94; }
+    .km-cell.km-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km-cell.km-off:hover { background: #3A3A38; }
+    .dst-res  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .dst-zer  { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .dst-keep { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .dst-up   { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+  }
+
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .hint { font-size: 11px; color: var(--text3); }
+  .gap { height: 14px; }
+  .section { margin-top: 1.5rem; }
+  .section-title { font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .section-title .hint { font-weight: 400; }
+
+  /* ── the multiply-add as a formula of chips ── */
+  .formula { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
+  .formula .cell { flex: 1 1 140px; cursor: pointer; }
+  .formula .op { font-family: var(--font-mono); font-size: 16px; color: var(--text2); display: flex; align-items: center; padding: 0 2px; }
+  .formula .arrow { font-family: var(--font-mono); font-size: 11px; color: var(--text3); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1.3; }
+  .formula .res-chip { flex: 1.3 1 170px; }
+
+  .exact { display: grid; grid-template-columns: max-content 1fr; column-gap: 12px; row-gap: 5px; margin-top: 10px; font-size: 11px; }
+  .exact .k { color: var(--text2); font-family: var(--font-mono); white-space: nowrap; }
+  .exact .v { font-family: var(--font-mono); color: var(--text); overflow-wrap: anywhere; min-width: 0; }
+  .exact .v .dim { color: var(--text3); }
+  .exact .v .good { color: #3B6D11; }
+  .exact .v .warn { color: #B4441F; }
+  @media (prefers-color-scheme: dark) {
+    .exact .v .good { color: #A4D46A; }
+    .exact .v .warn { color: #F08A6A; }
+  }
+
+  /* ── bit alignment diagram ── */
+  .scroll-x { overflow-x: auto; padding: 3px 3px 4px; margin: -3px; color-scheme: light dark; }
+  .bd { display: grid; column-gap: 1px; row-gap: 3px; align-items: center; width: max-content; }
+  .bd-lbl { font-family: var(--font-mono); font-size: 10px; color: var(--text2); white-space: nowrap; padding-right: 6px; }
+  .bd-sgn { font-family: var(--font-mono); font-size: 11px; color: var(--text2); text-align: center; }
+  /* row labels stay put while a wide diagram scrolls */
+  .bd .stick { position: sticky; left: 0; background: var(--bg); z-index: 1; align-self: stretch; display: flex; align-items: center; }
+  .bd .stick2 { left: 105px; justify-content: center; }
+  .bd-hdr { font-family: var(--font-mono); font-size: 8px; color: var(--text3); text-align: center; align-self: end; line-height: 1; height: 10px; }
+  .bd-bit {
+    height: 15px; border-radius: 2px; border: 0.5px solid var(--border);
+    background: var(--bg2); transition: box-shadow .1s;
+  }
+  .bd-bit.on { background: var(--c); border-color: var(--c); }
+  .bd-bit.kept { border-color: #639922; }
+  .bd-bit.kept:not(.on) { background: #EAF3DE; }
+  .bd-bit.rbit { border: 1.5px solid #EF9F27; }
+  .bd-bit.sbit { border: 1px dashed #EF9F27; }
+  .bd-bit.lost.on { background: repeating-linear-gradient(135deg, var(--c) 0 2px, transparent 2px 4px); border-color: #D94040; }
+  .bd-bit.bump { box-shadow: 0 0 0 1.5px #639922; }
+  .bd-bit.colhl { box-shadow: 0 0 0 1.5px #EF9F27; }
+  .bd-gap { font-family: var(--font-mono); font-size: 9px; color: var(--text3); text-align: center; height: 15px; line-height: 15px; border-radius: 2px; background: repeating-linear-gradient(90deg, transparent 0 3px, var(--border) 3px 4px); }
+  .bd-gap.colhl { box-shadow: 0 0 0 1.5px #EF9F27; }
+  .bd-special { font-family: var(--font-mono); font-size: 10px; color: var(--text2); padding-left: 4px; white-space: nowrap; }
+  @media (prefers-color-scheme: dark) {
+    .bd-bit.kept:not(.on) { background: #1F3509; }
+  }
+  .note { font-size: 11px; color: var(--text2); line-height: 1.6; margin-top: 8px; }
+  .note strong { color: var(--text); font-weight: 500; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 10px; color: var(--text3); margin-top: 6px; align-items: center; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { display: inline-block; width: 9px; height: 13px; border-radius: 2px; border: 0.5px solid var(--border); background: var(--bg2); }
+  .msg {
+    font-size: 12px; color: var(--text2); background: var(--bg2); border: 0.5px dashed var(--border2);
+    border-radius: var(--radius); padding: 10px 13px; line-height: 1.6;
+  }
+  .msg strong { color: var(--text); font-weight: 500; }
+  .msg code { font-family: var(--font-mono); font-size: 11px; }
+
+  /* ── MXCSR flags ── */
+  .flags { display: grid; grid-template-columns: max-content repeat(6, minmax(52px, 72px)) 1fr; gap: 4px 4px; align-items: center; }
+  .flags .bd-lbl { font-size: 11px; }
+  .flag {
+    font-family: var(--font-mono); font-size: 10px; text-align: center; padding: 4px 0; border-radius: 5px;
+    border: 0.5px solid var(--border); background: var(--bg2); color: var(--text3);
+  }
+  .flag.on { background: #FAC775; border-color: #EF9F27; color: #412402; font-weight: 600; }
+  .flag.on.supp { background: transparent; border-style: dashed; color: #9A6A2A; font-weight: 400; text-decoration: line-through; }
+  .flag.never { opacity: .45; }
+  .flag.lit { box-shadow: 0 0 0 2px #EF9F27; }
+  .flags .hint { padding-left: 6px; }
+  @media (max-width: 640px) {
+    .flags { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .flags .bd-lbl, .flags .hint { grid-column: 1 / -1; padding-left: 0; }
+    .flags .bd-lbl { margin-top: 6px; }
+  }
+  @media (prefers-color-scheme: dark) {
+    .flag.on { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .flag.on.supp { background: transparent; color: #C29A5A; }
+  }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  select:disabled { opacity: .5; }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctl[hidden] { display: none; }
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .ex-combo { position: relative; display: inline-flex; }
+  .ex-btn {
+    font-size: 11px; padding: 2px 8px; border-radius: 5px; cursor: pointer;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+  }
+  .ex-btn:hover { background: var(--bg3); }
+  .ex-menu {
+    position: absolute; top: calc(100% + 5px); right: 0; z-index: 60;
+    background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius);
+    padding: 4px; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.16);
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 420px; overflow-y: auto;
+  }
+  .ex-menu[hidden] { display: none; }   /* class rule would otherwise beat UA [hidden] */
+  .ex-menu button {
+    display: flex; justify-content: space-between; gap: 18px; align-items: baseline;
+    font-family: var(--font-mono); font-size: 11px; text-align: left; width: 100%;
+    padding: 4px 7px; border-radius: 4px;
+    border: 0.5px solid transparent; background: none; color: var(--text); cursor: pointer;
+  }
+  .ex-menu button:hover { background: var(--bg2); }
+  .ex-menu .mv { color: var(--text3); font-family: var(--font-sans); }
+
+  .popup {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; min-width: 250px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup input.bad { border-color: #D94040; color: #D94040; }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+  .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+  .quick-grid button { font-size: 10px; font-family: var(--font-mono); padding: 2px 0; flex: unset; }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+    <label class="ctl">
+      Form:
+      <select id="form" onchange="changeForm(this.value)">
+        <option value="vex">VEX (FMA)</option>
+        <option value="evex">EVEX (AVX-512F)</option>
+      </select>
+    </label>
+    <label class="ctl" id="kmode-ctl">
+      Mask:
+      <select id="kmode" onchange="changeKmaskMode(this.value)">
+        <option value="off">none</option>
+        <option value="merge">{k1} merge</option>
+        <option value="zero">{k1}{z} zero</option>
+      </select>
+    </label>
+    <label class="ctl">
+      src3:
+      <select id="srckind" onchange="changeSrcKind(this.value)">
+        <option value="reg">xmm3</option>
+        <option value="mem">m64</option>
+      </select>
+    </label>
+    <label class="ctl" title="MXCSR.RC — the rounding mode used unless EVEX embedded rounding overrides it">
+      MXCSR.RC:
+      <select id="mxrc" onchange="changeMxrc(this.value)">
+        <option value="0">RN (nearest-even)</option>
+        <option value="1">RD (toward −∞)</option>
+        <option value="2">RU (toward +∞)</option>
+        <option value="3">RZ (toward 0)</option>
+      </select>
+    </label>
+    <label class="ctl" id="er-ctl" title="EVEX embedded rounding {er}: overrides MXCSR.RC for this instruction and implies SAE (no flags). Register src3 only.">
+      {er}:
+      <select id="er" onchange="changeEr(this.value)">
+        <option value="-1">none</option>
+        <option value="0">{rn-sae}</option>
+        <option value="1">{rd-sae}</option>
+        <option value="2">{ru-sae}</option>
+        <option value="3">{rz-sae}</option>
+      </select>
+    </label>
+    <span class="ex-combo" id="ex-combo">
+      <button type="button" class="ex-btn" id="ex-btn" aria-expanded="false">Examples &#9662;</button>
+      <div class="ex-menu" id="ex-menu" hidden></div>
+    </span>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div>
+    <div class="row-lbl"><span class="badge bb">xmm1</span><span class="hint" id="r1-hint"></span></div>
+    <div class="reg-grid" id="r1-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge bt">xmm2</span><span class="hint" id="r2-hint"></span></div>
+    <div class="reg-grid" id="r2-grid"></div>
+    <div class="gap"></div>
+    <div class="row-lbl"><span class="badge br" id="r3-badge">xmm3</span><span class="hint" id="r3-hint"></span></div>
+    <div class="reg-grid" id="r3-grid"></div>
+    <div class="gap"></div>
+    <div id="kmask-row" hidden>
+      <div class="row-lbl"><span class="badge bp">k1</span><span class="hint" id="kmask-hint"></span></div>
+      <div class="reg-grid" id="kmask-grid"></div>
+      <div class="gap"></div>
+    </div>
+    <div class="row-lbl"><span class="badge bg">dst</span><span class="hint" id="dst-hint"></span></div>
+    <div class="reg-grid" id="dst-grid"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Multiply-add <span class="hint" id="fma-hint"></span></div>
+    <div class="formula" id="formula"></div>
+    <div class="exact" id="exact"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Bit alignment <span class="hint" id="bd-hint"></span></div>
+    <div id="bd-wrap"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">MXCSR exception flags <span class="hint">all exceptions masked (MXCSR = 0x1F80 plus RC) · flags are sticky: they OR into MXCSR</span></div>
+    <div class="flags" id="flags"></div>
+  </div>
+
+  <div class="info" id="info">Hover over any cell to trace the multiply-add.</div>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" href="https://www.felixcloutier.com/x86/vfmadd132sd:vfmadd213sd:vfmadd231sd" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction configurations ─────────────────────────────────────────────
+// VFMADDxyzSD computes X·Y + Z on the low double of three XMM operands, with
+// the product kept exact (no rounding) and a single rounding at the end. The
+// three digits name operands 1..3 (xmm1, xmm2, xmm3/m64): the first two are
+// multiplied, the third is added. xmm1 is always the destination as well.
+//
+//   132:  xmm1[63:0] = round(xmm1 · xmm3 + xmm2)
+//   213:  xmm1[63:0] = round(xmm2 · xmm1 + xmm3)
+//   231:  xmm1[63:0] = round(xmm2 · xmm3 + xmm1)
+//
+// Bits 127:64 of xmm1 are kept (not copied from xmm2, as VADDSD & co. do) and
+// bits MAXVL-1:128 are zeroed. X, Y, Z follow the operation's pseudocode, and
+// that order — not the operand numbers — is also the NaN priority (checked on
+// hardware: in 132 a NaN in xmm3 beats one in xmm2).
+//
+// roles: register numbers of X, Y, Z
+const VARIANTS = [
+  { key:'132', roles:[1, 3, 2], use:'xmm1 holds a multiplicand that is not needed afterwards; the addend survives in xmm2 and the other factor may come from memory.' },
+  { key:'213', roles:[2, 1, 3], use:'the classic a·b + c with the addend from memory — e.g. a Horner step <code>p = p·x + coef[i]</code> with p in xmm1.' },
+  { key:'231', roles:[2, 3, 1], use:'the accumulator form <code>acc += b·c</code> with acc in xmm1 — dot products and matrix kernels, one factor straight from memory.' },
+];
+const VAR_BY_KEY = {};
+for(const v of VARIANTS) VAR_BY_KEY[v.key] = v;
+const ROLE = ['X', 'Y', 'Z'];
+const RC_NAME = ['RN', 'RD', 'RU', 'RZ'];
+const RC_LONG = ['round to nearest, ties to even', 'round toward −∞', 'round toward +∞', 'round toward zero'];
+const RC_ER   = ['{rn-sae}', '{rd-sae}', '{ru-sae}', '{rz-sae}'];
+const RC_MACRO = ['_MM_FROUND_TO_NEAREST_INT', '_MM_FROUND_TO_NEG_INF', '_MM_FROUND_TO_POS_INF', '_MM_FROUND_TO_ZERO'];
+
+function parseHash(h){
+  const m = /^vfmadd(132|213|231)sd$/.exec(h.toLowerCase());
+  return m ? { key: m[1] } : null;
+}
+
+// ─── Arithmetic ─────────────────────────────────────────────────────────────
+// Doubles are handled as raw 64-bit patterns (BigInt) so NaN payloads, -0 and
+// signalling NaNs survive. A finite value is (-1)^s · m · 2^e with m < 2^53.
+// Products and sums are formed exactly in BigInt and rounded once, with the
+// x86 rules for NaN selection, exception flags and the sign of an exact zero.
+//
+//   rc: 0 = RN (nearest-even), 1 = RD (toward −∞), 2 = RU (toward +∞), 3 = RZ
+//   flags: I (invalid), D (denormal operand), O, U, P — Z (divide) never occurs
+const MASK52 = (1n << 52n) - 1n;
+const QUIET  = 1n << 51n;
+const SIGN   = 1n << 63n;
+const QNAN_INDEFINITE = 0xFFF8000000000000n;   // "real indefinite": sign set, payload 0
+const DBL_MAX_BITS = 0x7FEFFFFFFFFFFFFFn;
+const INF_BITS     = 0x7FF0000000000000n;
+
+function decode(b){
+  const s = Number(b >> 63n), E = Number((b >> 52n) & 0x7FFn), F = b & MASK52;
+  if(E === 0x7FF) return F ? { cls:'nan', s, snan: !(F & QUIET) } : { cls:'inf', s };
+  if(E === 0)     return F ? { cls:'sub', s, m:F, e:-1074 } : { cls:'zero', s };
+  return { cls:'norm', s, m:F | (1n << 52n), e:E - 1075 };
+}
+function bitLen(M){ return M === 0n ? 0 : M.toString(2).length; }
+function signBits(s){ return s ? SIGN : 0n; }
+function newFlags(){ return { I:0, D:0, O:0, U:0, P:0 }; }
+
+// Does rounding move the truncated magnitude q up by one unit?
+//   r: the first discarded bit (round bit), st: OR of the rest (sticky)
+function roundsUp(s, q, r, st, rc){
+  if(rc === 0) return !!r && (st || (q & 1n) === 1n);
+  if(rc === 1) return !!s && (!!r || st);
+  if(rc === 2) return !s && (!!r || st);
+  return false;
+}
+function cut(M, sh){   // sh > 0
+  const r = Number((M >> BigInt(sh - 1)) & 1n);
+  return { q: M >> BigInt(sh), r, st: (M & ((1n << BigInt(sh - 1)) - 1n)) !== 0n };
+}
+
+// Round the exact non-zero value (-1)^s · M · 2^e to a double.
+// Returns the bits plus everything the visualiser shows about the rounding.
+function roundExact(s, M, e, rc){
+  const L = bitLen(M), lead = e + L - 1;
+  // Tininess is judged after rounding to 53 bits with an unbounded exponent.
+  let ulead = lead;
+  if(L > 53){ const c = cut(M, L - 53); if(roundsUp(s, c.q, c.r, c.st, rc) && ((c.q + 1n) >> 53n)) ulead++; }
+  const tiny = ulead < -1022;
+
+  const lsb = Math.max(lead - 52, -1074);     // weight of the last kept bit
+  const sh = lsb - e;
+  let q, r = 0, st = false;
+  if(sh <= 0) q = M << BigInt(-sh); else ({ q, r, st } = cut(M, sh));
+  const inexact = r !== 0 || st;
+  const up = roundsUp(s, q, r, st, rc);
+  if(up) q += 1n;
+  let outLsb = lsb;
+  if(q >> 53n){ q >>= 1n; outLsb++; }
+
+  const info = { lead, lsb, outLsb, r, st, up, inexact, tiny, overflow:false };
+  const flags = newFlags();
+  if(inexact) flags.P = 1;
+  if(tiny && inexact) flags.U = 1;
+  let bits;
+  if(q < (1n << 52n)) bits = signBits(s) | q;   // subnormal (or rounded to zero)
+  else {
+    const E = outLsb + 1075;
+    if(E >= 0x7FF){
+      info.overflow = true;
+      flags.O = flags.P = 1;
+      const toInf = rc === 0 || (rc === 1 && s) || (rc === 2 && !s);
+      bits = signBits(s) | (toInf ? INF_BITS : DBL_MAX_BITS);
+    } else bits = signBits(s) | (BigInt(E) << 52n) | (q & MASK52);
+  }
+  return { bits, flags, info };
+}
+
+// The sign of an exact zero sum: like signs keep theirs, otherwise +0 (−0 under RD).
+function zeroSign(s1, s2, rc){ return s1 === s2 ? s1 : (rc === 1 ? 1 : 0); }
+
+// First NaN of the operands, quieted; I if any of them is signalling.
+function pickNaN(ops, flags){
+  let first = -1;
+  ops.forEach((o, k) => {
+    const d = decode(o);
+    if(d.cls === 'nan'){ if(d.snan) flags.I = 1; if(first < 0) first = k; }
+  });
+  return first < 0 ? null : { which:first, bits:ops[first] | QUIET };
+}
+
+// Fused X·Y + Z with one rounding. `kind` says which path produced the result:
+//   'nan' | 'invalid' | 'inf' | 'zero' | 'addend' | 'round'
+function fmaOp(x, y, z, rc){
+  const flags = newFlags();
+  const nan = pickNaN([x, y, z], flags);
+  if(nan) return { bits:nan.bits, flags, kind:'nan', which:nan.which };
+
+  const X = decode(x), Y = decode(y), Z = decode(z);
+  const pInf = X.cls === 'inf' || Y.cls === 'inf', pZero = X.cls === 'zero' || Y.cls === 'zero';
+  const ps = X.s ^ Y.s;
+  if(pInf && pZero){ flags.I = 1; return { bits:QNAN_INDEFINITE, flags, kind:'invalid', why:'0×∞' }; }
+  if(pInf && Z.cls === 'inf' && Z.s !== ps){ flags.I = 1; return { bits:QNAN_INDEFINITE, flags, kind:'invalid', why:'∞−∞' }; }
+  if(X.cls === 'sub' || Y.cls === 'sub' || Z.cls === 'sub') flags.D = 1;
+  if(pInf) return { bits:signBits(ps) | INF_BITS, flags, kind:'inf', why:'product' };
+  if(Z.cls === 'inf') return { bits:z, flags, kind:'inf', why:'addend' };
+  if(pZero){
+    if(Z.cls === 'zero') return { bits:signBits(zeroSign(ps, Z.s, rc)), flags, kind:'zero' };
+    return { bits:z, flags, kind:'addend' };
+  }
+  const Mp = X.m * Y.m, ep = X.e + Y.e;
+  let s, M, e;
+  if(Z.cls === 'zero'){ s = ps; M = Mp; e = ep; }
+  else {
+    e = Math.min(ep, Z.e);
+    const P = (ps ? -Mp : Mp) << BigInt(ep - e);
+    const C = (Z.s ? -Z.m : Z.m) << BigInt(Z.e - e);
+    const S = P + C;
+    if(S === 0n) return { bits:signBits(rc === 1 ? 1 : 0), flags, kind:'zero', cancel:true };
+    s = S < 0n ? 1 : 0; M = S < 0n ? -S : S;
+  }
+  const r = roundExact(s, M, e, rc);
+  for(const f in r.flags) flags[f] |= r.flags[f];
+  return { bits:r.bits, flags, kind:'round', info:r.info, exact:{ s, M, e } };
+}
+
+// VMULSD: X·Y rounded.
+function mulOp(x, y, rc){
+  const flags = newFlags();
+  const nan = pickNaN([x, y], flags);
+  if(nan) return { bits:nan.bits, flags, kind:'nan', which:nan.which };
+  const X = decode(x), Y = decode(y), ps = X.s ^ Y.s;
+  const inf = X.cls === 'inf' || Y.cls === 'inf', zero = X.cls === 'zero' || Y.cls === 'zero';
+  if(inf && zero){ flags.I = 1; return { bits:QNAN_INDEFINITE, flags, kind:'invalid', why:'0×∞' }; }
+  if(X.cls === 'sub' || Y.cls === 'sub') flags.D = 1;
+  if(inf)  return { bits:signBits(ps) | INF_BITS, flags, kind:'inf' };
+  if(zero) return { bits:signBits(ps), flags, kind:'zero' };
+  const r = roundExact(ps, X.m * Y.m, X.e + Y.e, rc);
+  for(const f in r.flags) flags[f] |= r.flags[f];
+  return { bits:r.bits, flags, kind:'round', info:r.info, exact:{ s:ps, M:X.m * Y.m, e:X.e + Y.e } };
+}
+
+// VADDSD: A + B rounded.
+function addOp(a, b, rc){
+  const flags = newFlags();
+  const nan = pickNaN([a, b], flags);
+  if(nan) return { bits:nan.bits, flags, kind:'nan', which:nan.which };
+  const A = decode(a), B_ = decode(b);
+  if(A.cls === 'inf' && B_.cls === 'inf' && A.s !== B_.s){ flags.I = 1; return { bits:QNAN_INDEFINITE, flags, kind:'invalid', why:'∞−∞' }; }
+  if(A.cls === 'sub' || B_.cls === 'sub') flags.D = 1;
+  if(A.cls === 'inf') return { bits:a, flags, kind:'inf' };
+  if(B_.cls === 'inf') return { bits:b, flags, kind:'inf' };
+  if(A.cls === 'zero' && B_.cls === 'zero') return { bits:signBits(zeroSign(A.s, B_.s, rc)), flags, kind:'zero' };
+  if(A.cls === 'zero') return { bits:b, flags, kind:'addend' };
+  if(B_.cls === 'zero') return { bits:a, flags, kind:'addend' };
+  const e = Math.min(A.e, B_.e);
+  const S = ((A.s ? -A.m : A.m) << BigInt(A.e - e)) + ((B_.s ? -B_.m : B_.m) << BigInt(B_.e - e));
+  if(S === 0n) return { bits:signBits(rc === 1 ? 1 : 0), flags, kind:'zero', cancel:true };
+  const s = S < 0n ? 1 : 0, M = S < 0n ? -S : S;
+  const r = roundExact(s, M, e, rc);
+  for(const f in r.flags) flags[f] |= r.flags[f];
+  return { bits:r.bits, flags, kind:'round', info:r.info, exact:{ s, M, e } };
+}
+// ─── end arithmetic ─────────────────────────────────────────────────────────
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let V;                       // current variant from VARIANTS
+let form = 'vex';            // 'vex' | 'evex'
+let kmode = 'off';           // 'off' | 'merge' | 'zero'  (EVEX only)
+let srcKind = 'reg';         // 'reg' | 'mem'
+let mxrc = 0;                // MXCSR.RC
+let er = -1;                 // EVEX embedded rounding, -1 = none
+let k0 = 1;                  // k1[0]
+// regs[r] = [low qword, high qword] as BigInt bit patterns; regs[3][0] doubles as the m64 operand
+const regs = { 1: [0n, 0n], 2: [0n, 0n], 3: [0n, 0n] };
+let hov = null;              // what the pointer is over, see wireHover()
+let cells;
+let R;                       // results of the last compute()
+
+// ─── Number helpers ─────────────────────────────────────────────────────────
+const dv = new DataView(new ArrayBuffer(8));
+function toNum(b){ dv.setBigUint64(0, b); return dv.getFloat64(0); }
+function fromNum(x){ dv.setFloat64(0, x); return dv.getBigUint64(0); }
+function hex16(b){ return b.toString(16).toUpperCase().padStart(16, '0'); }
+const minus = s => s.replace(/-/g, '−');
+
+function fmtVal(b){
+  const d = decode(b);
+  if(d.cls === 'nan'){
+    const pl = b & (QUIET - 1n);
+    return `${d.s ? '−' : ''}${d.snan ? 'SNaN' : 'QNaN'}${pl ? ':0x' + pl.toString(16).toUpperCase() : ''}`;
+  }
+  if(d.cls === 'inf') return d.s ? '−∞' : '+∞';
+  if(d.cls === 'zero') return d.s ? '−0' : '0';
+  return minus(String(toNum(b)));
+}
+function clsName(b){
+  const d = decode(b);
+  if(d.cls === 'nan') return b === QNAN_INDEFINITE ? 'QNaN indefinite' : d.snan ? 'signalling NaN' : 'quiet NaN';
+  return { inf:'infinity', zero:'zero', sub:'subnormal', norm:'normal' }[d.cls];
+}
+function isFiniteBits(b){ const c = decode(b).cls; return c !== 'nan' && c !== 'inf'; }
+
+// Distance in ulps between two finite doubles (as a BigInt), via the ordered integer line.
+function ulpDist(a, b){
+  const ord = x => (x & SIGN) ? -(x & ~SIGN) : x;
+  const d = ord(a) - ord(b);
+  return d < 0n ? -d : d;
+}
+function nextUp(b){
+  const d = decode(b);
+  if(d.cls === 'nan' || (d.cls === 'inf' && !d.s)) return b;
+  if(d.cls === 'zero') return 1n;
+  return d.s ? b - 1n === SIGN ? 0n | SIGN : b - 1n : b + 1n;
+}
+function nextDown(b){ return nextUp(b ^ SIGN) ^ SIGN; }
+
+// Exact value M·2^e (M > 0) in decimal: positional for moderate exponents,
+// scientific otherwise, cut to `max` significant digits with an ellipsis.
+function decExact(M, e, max = 34){
+  const N = e >= 0 ? M << BigInt(e) : M * 5n ** BigInt(-e);
+  const s = N.toString();
+  const exp10 = s.length - 1 + Math.min(e, 0);
+  let d = s.replace(/0+$/, '');
+  const trunc = d.length > max;
+  if(trunc) d = d.slice(0, max);
+  const ell = trunc ? '…' : '';
+  if(exp10 >= -5 && exp10 < 21 && !(trunc && exp10 >= max)){
+    if(exp10 >= 0){
+      const ip = d.slice(0, exp10 + 1).padEnd(exp10 + 1, '0'), fp = d.slice(exp10 + 1);
+      return ip + (fp ? '.' + fp : '') + ell;
+    }
+    return '0.' + '0'.repeat(-exp10 - 1) + d + ell;
+  }
+  return d[0] + (d.length > 1 ? '.' + d.slice(1) : '') + ell + 'e' + (exp10 >= 0 ? '+' : '−') + Math.abs(exp10);
+}
+function sigDigits(M, e){
+  const N = e >= 0 ? M << BigInt(e) : M * 5n ** BigInt(-e);
+  return N.toString().replace(/0+$/, '').length;
+}
+// Exact value M·2^e (M > 0) as a hex float 0x1.hhhp±k.
+function hexExact(M, e, max = 30){
+  const L = bitLen(M), p = e + L - 1;
+  let fb = L - 1, frac = M - (1n << BigInt(fb));
+  const pad = (4 - fb % 4) % 4;
+  frac <<= BigInt(pad); fb += pad;
+  let h = fb ? frac.toString(16).toUpperCase().padStart(fb / 4, '0').replace(/0+$/, '') : '';
+  if(h.length > max) h = h.slice(0, max) + '…';
+  return `0x1${h ? '.' + h : ''}p${p >= 0 ? '+' : '−'}${Math.abs(p)}`;
+}
+function trailingZeros(M){ let n = 0; while(!(M & 1n)){ M >>= 1n; n++; } return n; }
+
+// Text entry for a double:
+//   decimal / expressions   1.5   -0.1   1e-300   1+2^-52   -(1+2^-51)   2^-1074
+//   specials                inf  -inf  -0  nan  qnan:0x5  snan  snan:0x3  max  min
+//   raw bit pattern         0x3FF0000000000000   (0x + hex digits)
+//   exact hex float         0x1.8p+1
+function parseVal(raw){
+  const s = String(raw).trim().toLowerCase().replace(/[\s_]/g, '').replace(/[−–]/g, '-').replace(/∞/g, 'inf').replace(/[×·]/g, '*');
+  if(!s) return null;
+  let m;
+  if((m = /^([+-]?)(q?nan|snan)(?::(0x[0-9a-f]+|\d+))?$/.exec(s))){
+    const snan = m[2] === 'snan';
+    let pl = m[3] ? BigInt(m[3]) : (snan ? 1n << 50n : 0n);
+    if(pl >= QUIET || (snan && pl === 0n)) return null;
+    return (m[1] === '-' ? SIGN : 0n) | INF_BITS | (snan ? 0n : QUIET) | pl;
+  }
+  if(/^0x[0-9a-f]{1,16}$/.test(s)) return BigInt(s);
+  if((m = /^([+-]?)0x([0-9a-f]*)(?:\.([0-9a-f]*))?p([+-]?\d+)$/.exec(s)) && (m[2] || m[3])){
+    const sg = m[1] === '-' ? 1 : 0, fr = m[3] || '';
+    const M = BigInt('0x' + ((m[2] + fr) || '0'));
+    if(M === 0n) return signBits(sg);
+    return roundExact(sg, M, parseInt(m[4]) - 4 * fr.length, 0).bits;
+  }
+  const v = evalNum(s);
+  return v === null ? null : fromNum(v);
+}
+// A tiny double-precision calculator: + - * / ^ ( ), with ^ binding tightest
+// (so -2^2 = -4) and right-associative.
+function evalNum(src){
+  const toks = src.match(/\d+\.?\d*(?:e[+-]?\d+)?|\.\d+(?:e[+-]?\d+)?|inf(?:inity)?|max|min|[-+*/^()]|./g) || [];
+  let p = 0;
+  const peek = () => toks[p];
+  function expr(){ let v = term(); while(peek() === '+' || peek() === '-'){ const o = toks[p++]; const w = term(); v = o === '+' ? v + w : v - w; } return v; }
+  function term(){ let v = unary(); while(peek() === '*' || peek() === '/'){ const o = toks[p++]; const w = unary(); v = o === '*' ? v * w : v / w; } return v; }
+  function unary(){
+    if(peek() === '-'){ p++; return -unary(); }
+    if(peek() === '+'){ p++; return unary(); }
+    return power();
+  }
+  function power(){ const b = atom(); if(peek() === '^'){ p++; return Math.pow(b, unary()); } return b; }
+  function atom(){
+    const t = toks[p++];
+    if(t === undefined) throw 0;
+    if(t === '('){ const v = expr(); if(toks[p++] !== ')') throw 0; return v; }
+    if(/^inf/.test(t)) return Infinity;
+    if(t === 'max') return Number.MAX_VALUE;
+    if(t === 'min') return 2 ** -1022;
+    if(/^[\d.]/.test(t)){ const v = Number(t); if(Number.isNaN(v)) throw 0; return v; }
+    throw 0;
+  }
+  try {
+    const v = expr();
+    return p === toks.length ? v : null;
+  } catch(e){ return null; }
+}
+
+// ─── Derived state ──────────────────────────────────────────────────────────
+function erActive(){ return form === 'evex' && srcKind === 'reg' && er >= 0; }
+function rc(){ return erActive() ? er : mxrc; }
+function masked(){ return form === 'evex' && kmode !== 'off'; }
+function writes(){ return !masked() || !!k0; }
+function srcName(r){ return r === 3 && srcKind === 'mem' ? 'm64' : 'xmm' + r; }
+function roleReg(k){ return V.roles[k]; }             // register number holding X / Y / Z
+function roleOfReg(r){ return V.roles.indexOf(r); }   // 0..2 → X / Y / Z
+function opVal(k){ return regs[roleReg(k)][0]; }
+function regLane(r, lane){ return `${srcName(r)}${r === 3 && srcKind === 'mem' ? '' : `[${lane}]`}`; }
+
+function compute(){
+  const x = opVal(0), y = opVal(1), z = opVal(2), m = rc();
+  const F = fmaOp(x, y, z, m);
+  const P = mulOp(x, y, m);
+  const A = addOp(P.bits, z, m);
+  const unf = newFlags();
+  for(const f in unf) unf[f] = P.flags[f] | A.flags[f];
+  const w = writes();
+  const dst0 = w ? F.bits : kmode === 'zero' ? 0n : regs[1][0];
+  R = { x, y, z, F, P, A, unf, dst0, w };
+}
+
+// ─── Metadata ───────────────────────────────────────────────────────────────
+function mnemonic(){ return 'VFMADD' + V.key + 'SD'; }
+function maskSuffix(){ return !masked() ? '' : kmode === 'merge' ? '{k1}' : '{k1}{z}'; }
+function instrTitle(){
+  return `${mnemonic()} xmm1${maskSuffix()}, xmm2, ${srcName(3)}${erActive() ? RC_ER[er] : ''}`;
+}
+function formulaText(){
+  const n = k => srcName(roleReg(k));
+  return `${n(0)} × ${n(1)} + ${n(2)}`;
+}
+// Intrinsic spelling: _mm_fmadd_sd(a, b, c) = a·b + c keeping a's upper half,
+// so it lands on 132/213 (a in xmm1); _mm_mask3_* keeps c's, which is 231.
+function intrinsic(){
+  const r = erActive() ? '_round' : '';
+  const ra = erActive() ? `, ${RC_MACRO[er]} | _MM_FROUND_NO_EXC` : '';
+  const map = { '132':'a = xmm1, b = xmm3, c = xmm2', '213':'a = xmm1, b = xmm2, c = xmm3', '231':'a = xmm2, b = xmm3, c = xmm1' }[V.key];
+  let call;
+  if(V.key === '231'){
+    const keepsA = '<code>_mm_fmadd_sd</code> and the mask/maskz forms keep a\'s upper half and map to 132/213';
+    if(masked() && kmode === 'zero')
+      return `none maps to 231 with <code>{z}</code> — ${keepsA}, and <code>_mm_mask3_fmadd${r}_sd</code> merges into c rather than zeroing`;
+    if(masked())
+      return `<code>_mm_mask3_fmadd${r}_sd(a, b, c, k${ra})</code> (${map}) — the <code>mask3</code> form keeps c's upper half, which is what 231 does; ${keepsA} instead`;
+    return (form === 'evex'
+             ? `<code>_mm_mask3_fmadd${r}_sd(a, b, c, 1${ra})</code> (${map}) — mask3 keeps c's upper half, which is what 231 does; ${keepsA}`
+             : `no intrinsic of the FMA extension keeps the addend's upper half (${keepsA}; the AVX-512 <code>_mm_mask3_fmadd_sd</code> is the one that maps to 231)`) +
+           `. Compilers also emit 231 for scalar <code>fma(a, b, acc)</code> when acc's register may be overwritten`;
+  }
+  call = !masked() ? `_mm_fmadd${r}_sd(a, b, c${ra})`
+       : kmode === 'merge' ? `_mm_mask_fmadd${r}_sd(a, k, b, c${ra})`
+       : `_mm_maskz_fmadd${r}_sd(k, a, b, c${ra})`;
+  return `<code>${call}</code> (${map}; the compiler picks 132 or 213 by which of b, c it wants from memory)`;
+}
+function instrSubtitle(){
+  const roundNote = erActive()
+    ? ` <code>${RC_ER[er]}</code> overrides MXCSR.RC with ${RC_NAME[er]} for this instruction only and suppresses all exceptions (SAE) — MXCSR flags are left alone.`
+    : form === 'evex' && srcKind === 'mem' ? ' Embedded rounding needs a register src3; with m64 the rounding comes from MXCSR.RC.' : '';
+  const maskNote = !masked() ? '' : kmode === 'merge'
+    ? ` With <code>{k1}</code> and k1[0] = 0 the low double keeps xmm1's old value (${V.key === '231' ? 'the addend' : 'a multiplicand'}) and no exception is reported.`
+    : ` With <code>{k1}{z}</code> and k1[0] = 0 the low double is zeroed and no exception is reported.`;
+  return `<code>xmm1[63:0] = round(${formulaText()})</code>. The digits name the operands: the first two are multiplied, the third is added. ` +
+         `The product is exact (up to 106 bits) and the sum is rounded <strong>once</strong>, so the result can differ from <code>VMULSD</code> + <code>VADDSD</code>, which round twice. ` +
+         `Bits 127:64 of xmm1 are <em>kept</em> — unlike VADDSD &amp; co., which copy them from xmm2 — and bits MAXVL-1:128 are zeroed. ` +
+         `${V.key} suits ${V.use}${roundNote}${maskNote} Intrinsic: ${intrinsic()}.`;
+}
+
+// ─── Init / switching ───────────────────────────────────────────────────────
+function seed(){
+  // The default example is the classic one: 0.1 × 10 − 1, i.e. the rounding
+  // error of 0.1·10, which only the fused form can see.
+  setRoles('0.1', '10', '-1');
+  regs[1][1] = fromNum(42.5);
+  regs[2][1] = fromNum(-7);
+  regs[3][1] = fromNum(1e100);
+}
+function setRoles(x, y, z){
+  [x, y, z].forEach((t, k) => { regs[roleReg(k)][0] = parseVal(t); });
+}
+
+function selectVariant(key){
+  // Keep the values in their roles (X, Y, Z), not their registers, so switching
+  // the form shows the same multiply-add with different register assignments.
+  const vals = V ? [opVal(0), opVal(1), opVal(2)] : null;
+  V = VAR_BY_KEY[key] || VARIANTS[0];
+  if(vals) vals.forEach((b, k) => { regs[roleReg(k)][0] = b; });
+  else seed();
+  hov = null; closePopup(); closeExMenu();
+  build(); updatePresentation(); render(); resetInfo();
+}
+
+function changeForm(f){
+  if(f === form) return;
+  form = f;
+  hov = null; closePopup();
+  build(); updatePresentation(); render(); resetInfo();
+}
+function changeKmaskMode(m){ if(m === kmode) return; kmode = m; updatePresentation(); render(); }
+function changeSrcKind(k){
+  if(k === srcKind) return;
+  srcKind = k; hov = null; closePopup();
+  build(); updatePresentation(); render(); resetInfo();
+}
+function changeMxrc(v){ mxrc = parseInt(v); updatePresentation(); render(); }
+function changeEr(v){ er = parseInt(v); updatePresentation(); render(); }
+
+function updatePresentation(){
+  document.title = `${mnemonic()} — Interactive Fused Multiply-Add Visualiser`;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === V.key));
+  const evex = form === 'evex';
+  document.getElementById('form').value = form;
+  document.getElementById('kmode-ctl').hidden = !evex;
+  document.getElementById('er-ctl').hidden = !evex;
+  document.getElementById('kmode').value = kmode;
+  document.getElementById('srckind').value = srcKind;
+  document.getElementById('mxrc').value = mxrc;
+  const erSel = document.getElementById('er');
+  erSel.value = er;
+  erSel.disabled = srcKind === 'mem';
+  document.getElementById('kmask-row').hidden = !masked();
+  document.getElementById('title').textContent = instrTitle();
+  document.getElementById('subtitle').innerHTML = instrSubtitle();
+  document.getElementById('isa-badge').textContent = evex ? 'AVX-512F' : 'FMA';
+  document.getElementById('width-badge').textContent = 'scalar f64 · XMM';
+  document.getElementById('r3-badge').textContent = srcName(3);
+
+  const role = r => { const k = roleOfReg(r); return `${ROLE[k]} — ${k < 2 ? 'multiplicand' : 'addend'}`; };
+  document.getElementById('r1-hint').textContent = `before the instruction · [0] is ${role(1)}, and the destination · [1] is kept · click to edit`;
+  document.getElementById('r2-hint').textContent = `[0] is ${role(2)} · [1] is ignored · click to edit`;
+  document.getElementById('r3-hint').textContent = srcKind === 'mem'
+    ? `one double loaded from memory, ${role(3)} · click to edit`
+    : `[0] is ${role(3)} · [1] is ignored · click to edit`;
+  document.getElementById('kmask-hint').textContent = kmode === 'zero'
+    ? 'only bit 0 is used · click to toggle — 0 zeroes dst[0]'
+    : 'only bit 0 is used · click to toggle — 0 keeps xmm1[0]';
+  document.getElementById('dst-hint').textContent = `xmm1 after — [0] = round(${formulaText()}) · [1] = xmm1[1] unchanged · bits MAXVL-1:128 zeroed`;
+  const m = rc();
+  document.getElementById('fma-hint').textContent =
+    `${RC_NAME[m]} — ${RC_LONG[m]}${erActive() ? ` (from ${RC_ER[er]})` : ' (from MXCSR.RC)'} · click a chip to edit its operand`;
+  if(location.hash !== '#vfmadd' + V.key + 'sd') history.replaceState(null, '', '#vfmadd' + V.key + 'sd');
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+function makeCell(){
+  const el = document.createElement('div');
+  el.innerHTML = '<span class="cell-idx"></span><span class="cell-val"></span><span class="cell-hex"></span>';
+  [el._idx, el._val, el._hex] = el.children;
+  return el;
+}
+function makeDiv(cls, text){
+  const el = document.createElement('div');
+  el.className = cls;
+  if(text !== undefined) el.textContent = text;
+  return el;
+}
+
+function build(){
+  closePopup();
+  cells = { 1: [], 2: [], 3: [], k: null, dst: [], chips: [], flags: { F: {}, U: {} } };
+
+  for(const r of [1, 2, 3]){
+    const g = document.getElementById(`r${r}-grid`);
+    g.innerHTML = '';
+    const lanes = r === 3 && srcKind === 'mem' ? 1 : 2;
+    for(let lane = 0; lane < lanes; lane++){
+      const el = makeCell();
+      el.onclick = () => openValPopup(r, lane, el, g);
+      wireHover(el, { kind:'reg', r, lane });
+      g.appendChild(el);
+      cells[r].push(el);
+    }
+    // keep m64 in the column of the low lanes it pairs with
+    if(lanes === 1) g.appendChild(makeDiv(''));
+  }
+
+  const kG = document.getElementById('kmask-grid');
+  kG.innerHTML = '';
+  const k = makeCell();
+  k.onclick = () => { k0 ^= 1; render(); updateInfo(); };
+  wireHover(k, { kind:'k' });
+  kG.appendChild(k);
+  cells.k = k;
+  const kIdle = makeCell();
+  kIdle.className = 'cell km-cell idle';
+  kIdle._idx.textContent = 'k1[7:1]';
+  kIdle._val.textContent = 'ignored';
+  kIdle._hex.textContent = 'a scalar op reads bit 0 only';
+  kG.appendChild(kIdle);
+
+  const dG = document.getElementById('dst-grid');
+  dG.innerHTML = '';
+  for(let lane = 0; lane < 2; lane++){
+    const el = makeCell();
+    wireHover(el, { kind:'dst', lane });
+    dG.appendChild(el);
+    cells.dst.push(el);
+  }
+
+  // Formula chips: X × Y + Z → result
+  const fG = document.getElementById('formula');
+  fG.innerHTML = '';
+  const chip = k => {
+    const el = makeCell();
+    el.onclick = () => openValPopup(roleReg(k), 0, el, fG);
+    wireHover(el, { kind:'chip', k });
+    cells.chips[k] = el;
+    return el;
+  };
+  const arrow = makeDiv('arrow');
+  cells.arrow = arrow;
+  const res = makeCell();
+  res.classList.add('res-chip');
+  wireHover(res, { kind:'dst', lane:0 });
+  cells.resChip = res;
+  fG.append(chip(0), makeDiv('op', '×'), chip(1), makeDiv('op', '+'), chip(2), arrow, res);
+  fG.style.position = 'relative';
+
+  // Flags
+  const flG = document.getElementById('flags');
+  flG.innerHTML = '';
+  for(const [path, label] of [['F', 'fused'], ['U', 'VMULSD + VADDSD']]){
+    flG.appendChild(makeDiv('bd-lbl', label));
+    for(const f of FLAG_ORDER){
+      const el = makeDiv('flag', f + 'E');
+      wireHover(el, { kind:'flag', f, path });
+      flG.appendChild(el);
+      cells.flags[path][f] = el;
+    }
+    const note = makeDiv('hint');
+    flG.appendChild(note);
+    cells.flags[path].note = note;
+  }
+}
+const FLAG_ORDER = ['I', 'D', 'Z', 'O', 'U', 'P'];
+const FLAG_NAME = { I:'invalid operation', D:'denormal operand', Z:'divide-by-zero', O:'overflow', U:'underflow', P:'precision (inexact)' };
+
+function wireHover(el, h){
+  el.addEventListener('mouseenter', () => { hov = h; refreshHover(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hov = null; refreshHover(); resetInfo(); });
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function fillCell(el, idx, b){
+  el._idx.textContent = idx;
+  el._val.textContent = fmtVal(b);
+  el._hex.textContent = '0x' + hex16(b);
+}
+
+function render(){
+  compute();
+  const roleTag = r => { const k = roleOfReg(r); return k < 0 ? '' : ` · ${ROLE[k]}`; };
+  for(const r of [1, 2, 3]){
+    cells[r].forEach((el, lane) => {
+      const b = regs[r][lane];
+      const mem = r === 3 && srcKind === 'mem';
+      fillCell(el, mem ? `m64${roleTag(r)}` : lane === 0 ? `[0] bits 63:0${roleTag(r)}` : '[1] bits 127:64' + (r === 1 ? ' · kept' : ' · ignored'), b);
+      el.className = `cell r${r}-cell` + (lane === 1 && r !== 1 ? ' idle' : '');
+      el.title = `${regLane(r, lane)} = ${fmtVal(b)} (0x${hex16(b)}, ${clsName(b)}) — click to edit`;
+    });
+  }
+
+  if(masked()){
+    const k = cells.k;
+    k.className = 'cell km-cell' + (k0 ? '' : ' km-off');
+    k._idx.textContent = 'k1[0]';
+    k._val.textContent = k0;
+    k._hex.textContent = k0 ? 'write the result' : kmode === 'zero' ? 'zero dst[0]' : 'keep xmm1[0]';
+  }
+
+  const d0 = cells.dst[0], d1 = cells.dst[1];
+  fillCell(d0, R.w ? '[0] = round(X·Y + Z)' : kmode === 'zero' ? '[0] masked · zeroed' : '[0] masked · old xmm1[0] kept', R.dst0);
+  d0.className = 'cell ' + (R.w ? 'dst-res' : kmode === 'zero' ? 'dst-zer' : 'dst-keep');
+  fillCell(d1, '[1] = xmm1[1] (unchanged)', regs[1][1]);
+  d1.className = 'cell dst-up';
+
+  renderFormula();
+  renderExact();
+  renderDiagram();
+  renderFlags();
+  refreshHover();
+}
+
+function renderFormula(){
+  for(let k = 0; k < 3; k++){
+    const r = roleReg(k), el = cells.chips[k];
+    fillCell(el, `${ROLE[k]} = ${regLane(r, 0)}`, opVal(k));
+    el.className = `cell r${r}-cell`;
+    el.title = `${ROLE[k]} (${k < 2 ? 'multiplicand' : 'addend'}) comes from ${regLane(r, 0)} — click to edit`;
+  }
+  cells.arrow.innerHTML = `exact<br>&rarr;<br>${RC_NAME[rc()]}`;
+  const res = cells.resChip;
+  fillCell(res, 'fused result' + (R.w ? '' : ' (masked off)'), R.F.bits);
+  res.className = 'cell res-chip ' + (R.w ? 'dst-res' : 'dst-zer');
+}
+
+function renderExact(){
+  const box = document.getElementById('exact');
+  const F = R.F, P = R.P, A = R.A;
+  const X = decode(R.x), Y = decode(R.y), Z = decode(R.z);
+  const rows = [];
+  const finite = c => c === 'norm' || c === 'sub';
+  const exactStr = (s, M, e) => {
+    const nd = sigDigits(M, e), nb = bitLen(M) - trailingZeros(M);
+    return `${s ? '−' : ''}${decExact(M, e)} <span class="dim">= ${s ? '−' : ''}${hexExact(M, e)} · ${nb} significant bit${nb > 1 ? 's' : ''}, ${nd} decimal digit${nd > 1 ? 's' : ''}</span>`;
+  };
+  // X·Y exact
+  if(finite(X.cls) && finite(Y.cls)) rows.push(['X·Y exact', exactStr(X.s ^ Y.s, X.m * Y.m, X.e + Y.e)]);
+  else rows.push(['X·Y exact', `<span class="dim">${fmtVal(R.x)} × ${fmtVal(R.y)} — ${productWord(X, Y)}</span>`]);
+  // sum exact
+  if(F.kind === 'round') rows.push(['X·Y + Z exact', exactStr(F.exact.s, F.exact.M, F.exact.e)]);
+  else if(F.kind === 'zero') rows.push(['X·Y + Z exact', F.cancel ? '0 <span class="dim">— exact cancellation</span>' : '0 <span class="dim">— a zero product plus a zero</span>']);
+  else rows.push(['X·Y + Z exact', `<span class="dim">— (${specialWord(F)})</span>`]);
+  // fused
+  rows.push([`fused · ${RC_NAME[rc()]}`, `<strong>${fmtVal(F.bits)}</strong> <span class="dim">0x${hex16(F.bits)} · ${clsName(F.bits)}${F.kind === 'round' ? F.info.inexact ? ' · inexact' : ' · exact' : ''}</span>`]);
+  // unfused
+  const same = A.bits === F.bits;
+  let cmp;
+  if(same) cmp = '<span class="good">same as fused</span>';
+  else if(isFiniteBits(A.bits) && isFiniteBits(F.bits)){
+    const n = ulpDist(A.bits, F.bits);
+    cmp = n === 0n ? '<span class="warn">differs from fused only in the sign of zero</span>'
+        : n <= 1000000n ? `<span class="warn">differs from fused by ${n} ulp${n === 1n ? '' : 's'}</span>`
+        : decode(A.bits).cls === 'zero' ? '<span class="warn">differs from fused — the whole answer was lost when VMULSD rounded the product</span>'
+        : '<span class="warn">differs from fused — not even close</span>';
+  } else cmp = '<span class="warn">differs from fused</span>';
+  rows.push(['VMULSD → VADDSD', `round(X·Y) = ${fmtVal(P.bits)} <span class="dim">0x${hex16(P.bits)}</span>, then round(… + Z) = <strong>${fmtVal(A.bits)}</strong> <span class="dim">0x${hex16(A.bits)}</span> · ${cmp}`]);
+  box.innerHTML = rows.map(([k, v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('');
+}
+function productWord(X, Y){
+  if(X.cls === 'nan' || Y.cls === 'nan') return 'a NaN operand';
+  if((X.cls === 'inf' && Y.cls === 'zero') || (X.cls === 'zero' && Y.cls === 'inf')) return 'invalid';
+  if(X.cls === 'inf' || Y.cls === 'inf') return '±∞';
+  return 'exactly 0';
+}
+function specialWord(F){
+  if(F.kind === 'nan') return `${ROLE[F.which]} is NaN`;
+  if(F.kind === 'invalid') return `${F.why} is invalid`;
+  if(F.kind === 'inf') return F.why === 'product' ? 'X·Y is infinite' : 'Z is infinite';
+  if(F.kind === 'addend') return 'X·Y is exactly 0, so the result is Z';
+  return '';
+}
+
+// ── Bit alignment diagram ──
+// Columns are bit weights 2^w, highest on the left. The rows line up the exact
+// product, the addend, their exact sum and the rounded results, so the bits
+// the single rounding keeps (green band), the round bit R and the sticky bits S
+// are visible — and so are the product bits VMULSD throws away.
+function renderDiagram(){
+  const wrap = document.getElementById('bd-wrap');
+  const hint = document.getElementById('bd-hint');
+  const F = R.F, P = R.P, A = R.A;
+  cells.bd = null;
+  if(!(F.kind === 'round' || (F.kind === 'zero' && F.cancel))){
+    hint.textContent = '';
+    wrap.innerHTML = `<div class="msg">${specialMessage()}</div>`;
+    return;
+  }
+  hint.textContent = 'columns are bit weights 2^k, high on the left · hover a column for its weight';
+  const X = decode(R.x), Y = decode(R.y), Z = decode(R.z);
+  const fin = b => { const d = decode(b); return d.cls === 'norm' || d.cls === 'sub' ? { s:d.s, M:d.m, e:d.e } : d.cls === 'zero' ? { s:d.s, M:0n, e:0 } : null; };
+  const rows = [
+    { key:'xy',  label:'X·Y exact',  s:X.s ^ Y.s, M:X.m * Y.m, e:X.e + Y.e, c:'var(--c-xy)' },
+    { key:'z',   label:'Z',          ...fin(R.z), c:`var(--c-r${roleReg(2)})` },
+    { key:'sum', label:'X·Y + Z exact', ...(F.kind === 'round' ? F.exact : { s:0, M:0n, e:0 }), c:'var(--c-sum)' },
+    { key:'f',   label:`fused ${RC_NAME[rc()]}`, bits:F.bits, ...fin(F.bits), c:'var(--c-f)' },
+    { key:'p',   label:'VMULSD X·Y', bits:P.bits, ...(fin(P.bits) || {}), c:'var(--c-p)' },
+    { key:'a',   label:'VADDSD +Z',  bits:A.bits, ...(fin(A.bits) || {}), c:A.bits === F.bits ? 'var(--c-f)' : 'var(--c-bad)' },
+  ];
+  for(const row of rows){
+    if(row.M === undefined) row.special = `${fmtVal(row.bits)}${P.info && P.info.overflow && row.key === 'p' ? ' — overflow' : ''}`;
+    else if(row.M > 0n){ row.lead = row.e + bitLen(row.M) - 1; row.low = row.e + trailingZeros(row.M); }
+  }
+  const live = rows.filter(r => r.lead !== undefined);
+  const fi = F.kind === 'round' ? F.info : null;
+  // A value entirely below 2^-1074 still needs the L column (and VMULSD's) on screen.
+  const hi = Math.max(...live.map(r => r.lead), fi ? fi.lsb : -Infinity, P.kind === 'round' ? P.info.lsb : -Infinity);
+  let lo;
+  if(fi){
+    // Show down to two bits below the last kept one; reach further for the
+    // operands' low bits when that stays readable — the rest folds into the
+    // sticky column on the right.
+    lo = fi.lsb - 2;
+    const lowOps = Math.min(...[rows[0], rows[1]].filter(r => r.low !== undefined).map(r => r.low));
+    if(lowOps < lo) lo = Math.max(lowOps, fi.lsb - 2 - 64);
+  } else lo = Math.min(hi - 12, ...[rows[0], rows[1]].filter(r => r.low !== undefined).map(r => r.low));
+
+  const bitAt = (row, w) => row.lead === undefined || w < row.e || w > row.lead ? 0 : Number((row.M >> BigInt(w - row.e)) & 1n);
+  const below = (row, w) => row.lead !== undefined && row.e < w && (row.M & ((1n << BigInt(w - row.e)) - 1n)) !== 0n;
+
+  // Columns, with runs of all-zero columns folded into one gap column — but
+  // never inside the two rounding windows: the fused one and the 53 bits
+  // VMULSD keeps of the product.
+  const bands = [];
+  if(fi) bands.push([Math.max(fi.lead + 1, fi.lsb), fi.lsb - 2]);
+  if(P.kind === 'round') bands.push([Math.max(P.info.lead, P.info.lsb), P.info.lsb]);
+  const inBand = w => bands.some(([a, b]) => w <= a && w >= b);
+  const cols = [];
+  let run = [];
+  const flush = () => {
+    if(run.length >= 4) cols.push({ t:'gap', hi:run[0], lo:run[run.length - 1] });
+    else for(const w of run) cols.push({ t:'bit', w });
+    run = [];
+  };
+  for(let w = hi; w >= lo; w--){
+    const empty = !inBand(w) && rows.every(r => !bitAt(r, w));
+    if(empty) run.push(w); else { flush(); cols.push({ t:'bit', w }); }
+  }
+  flush();
+  const hasSticky = rows.some(r => below(r, lo));
+  if(hasSticky) cols.push({ t:'sticky' });
+
+  const g = makeDiv('bd');
+  g.style.gridTemplateColumns = '104px 12px ' + cols.map(c => c.t === 'bit' ? '6px' : c.t === 'gap' ? '22px' : '12px').join(' ');
+  // header: L / R / S markers
+  g.appendChild(makeDiv('bd-hdr stick', ''));
+  g.appendChild(makeDiv('bd-hdr stick stick2', ''));
+  for(const c of cols){
+    let t = '';
+    if(c.t === 'bit' && fi){ if(c.w === fi.lsb) t = 'L'; else if(c.w === fi.lsb - 1) t = 'R'; else if(c.w === fi.lsb - 2) t = 'S…'; }
+    if(c.t === 'bit' && c.w === 0 && !t) t = '2⁰';
+    if(c.t === 'sticky' && fi) t = 'S';
+    g.appendChild(makeDiv('bd-hdr', t));
+  }
+  const colEls = cols.map(() => []);
+  for(const row of rows){
+    g.appendChild(makeDiv('bd-lbl stick', row.label));
+    g.appendChild(makeDiv('bd-sgn stick stick2', row.special ? '' : row.M === 0n ? (row.key === 'sum' ? '' : row.s ? '−' : '+') : row.s ? '−' : '+'));
+    if(row.special){
+      const sp = makeDiv('bd-special', row.special);
+      sp.style.gridColumn = `3 / span ${cols.length}`;
+      g.appendChild(sp);
+      continue;
+    }
+    cols.forEach((c, ci) => {
+      let el;
+      if(c.t === 'gap'){
+        el = makeDiv('bd-gap', '⋯');
+        const ones = rows.some(r => !r.special && [...Array(c.hi - c.lo + 1)].some((_, i) => bitAt(r, c.lo + i)));
+        el.title = `2^${c.hi} … 2^${c.lo}: ${c.hi - c.lo + 1} columns${ones ? '' : ' of zeros in every row'}`;
+      } else {
+        const on = c.t === 'bit' ? bitAt(row, c.w) : below(row, lo) ? 1 : 0;
+        el = makeDiv('bd-bit' + (on ? ' on' : ''));
+        el.style.setProperty('--c', row.c);
+        if(row.key === 'sum' && fi){
+          if(c.t === 'sticky' || c.w < fi.lsb - 1) el.classList.add('sbit');
+          else if(c.w === fi.lsb - 1) el.classList.add('rbit');
+          else if(c.w <= fi.lead) el.classList.add('kept');
+        }
+        if(row.key === 'xy' && P.kind === 'round' && (c.t === 'sticky' || c.w < P.info.lsb)) el.classList.add('lost');
+        if(row.key === 'sum' && fi && fi.up && c.t === 'bit' && c.w === fi.lsb) el.classList.add('bump');
+        el.title = c.t === 'sticky' ? `${row.label}: OR of all bits below 2^${lo} = ${on}` : `${row.label}: bit 2^${c.w} = ${on}`;
+      }
+      wireHover(el, { kind:'col', ci });
+      colEls[ci].push(el);
+      g.appendChild(el);
+    });
+  }
+  const scroller = makeDiv('scroll-x');
+  scroller.appendChild(g);
+  wrap.innerHTML = '';
+  wrap.appendChild(scroller);
+  // If the diagram is wider than the card, bring the fused L/R/S columns into view.
+  if(fi){
+    const ci = cols.findIndex(c => c.t === 'bit' && c.w === fi.lsb - 2);
+    const el = ci >= 0 && colEls[ci][0];
+    if(el){
+      const x = el.getBoundingClientRect().right - scroller.getBoundingClientRect().left + scroller.scrollLeft;
+      if(x > scroller.clientWidth) scroller.scrollLeft = x - scroller.clientWidth + 24;
+    }
+  }
+  wrap.appendChild(diagramLegend());
+  const note = makeDiv('note');
+  note.innerHTML = diagramNote();
+  wrap.appendChild(note);
+  cells.bd = { cols, colEls, rows, lo };
+}
+function diagramLegend(){
+  const el = makeDiv('legend');
+  el.innerHTML =
+    '<span><i style="border-color:#639922;background:#EAF3DE"></i>kept by the fused rounding</span>' +
+    '<span><i style="border:1.5px solid #EF9F27"></i>R — round bit</span>' +
+    '<span><i style="border:1px dashed #EF9F27"></i>S — sticky bits (any 1?)</span>' +
+    '<span><i style="background:repeating-linear-gradient(135deg,var(--c-xy) 0 2px,transparent 2px 4px);border-color:#D94040"></i>product bits VMULSD rounds away</span>' +
+    '<span><i style="box-shadow:0 0 0 1.5px #639922"></i>L, where rounding up adds 1</span>';
+  return el;
+}
+function diagramNote(){
+  const F = R.F, P = R.P, m = rc();
+  if(F.kind === 'zero'){
+    return `X·Y and Z cancel exactly, so there is nothing to round: the result is an exact zero, which is <strong>${F.bits ? '−0' : '+0'}</strong> — ` +
+           `+0 in every rounding mode except RD, where it is −0. ${P.kind === 'round' && P.info.inexact ? 'VMULSD, which first rounds the product, sees no such cancellation unless its rounding was exact.' : ''}`;
+  }
+  const fi = F.info;
+  const kept = Math.max(0, fi.lead - fi.lsb + 1);
+  const dir = fi.up ? 'rounded <strong>up</strong> (+1 at L)' : 'truncated';
+  const why = !fi.inexact ? 'R = 0 and S = 0: the sum is exactly representable, nothing to round'
+    : `R = ${fi.r}, S = ${fi.st ? 1 : 0} → under ${RC_NAME[m]} the kept bits are ${dir}` +
+      (m === 0 && fi.r && !fi.st ? ' — a tie, broken toward an even L' : '');
+  let s = kept
+    ? `The exact sum's leading 1 is at 2^${fi.lead}; the double keeps ${kept} bit${kept > 1 ? 's' : ''} down to L = 2^${fi.lsb}` +
+      (fi.lead < -1022 ? ' (subnormal: 2^-1074 is the last bit a double has)' : '') + `. ${why}.`
+    : `The exact sum's leading 1 is at 2^${fi.lead}, below L = 2^-1074, the last bit a double has: no bit of it is kept, ` +
+      `so the result is 0 or the smallest subnormal. ${why}.`;
+  if(fi.overflow) s += ` The rounded value exceeds DBL_MAX: <strong>overflow</strong> → ${fmtVal(F.bits)}.`;
+  if(fi.tiny && fi.inexact) s += ' The result is tiny and inexact → <strong>underflow</strong>.';
+  if(P.kind === 'round' && P.info.overflow)
+    s += ` VMULSD has to round X·Y to a double on its own, and at 2^${P.info.lead} it <strong>overflows</strong> to ${fmtVal(P.bits)} — no later add can bring it back.`;
+  else if(P.kind === 'round' && P.info.inexact){
+    const n = Math.max(0, P.info.lead - P.info.lsb + 1);
+    s += n
+      ? ` VMULSD rounds X·Y to a double first, keeping ${n} bit${n > 1 ? 's' : ''} (down to 2^${P.info.lsb}) — the hatched product bits are gone before Z is added.`
+      : ` VMULSD rounds X·Y to a double first, and all of it lies below 2^-1074 — it becomes ${fmtVal(P.bits)} before Z is added.`;
+  }
+  else if(P.kind === 'round') s += ' Here X·Y fits in a double exactly, so VMULSD loses nothing and the two paths can only differ in the add.';
+  return s;
+}
+function specialMessage(){
+  const F = R.F;
+  const nm = k => `${ROLE[k]} (${regLane(roleReg(k), 0)})`;
+  if(F.kind === 'nan'){
+    const ops = [R.x, R.y, R.z].map(decode);
+    const nans = ops.map((d, k) => d.cls === 'nan' ? k : -1).filter(k => k >= 0);
+    const anyS = ops.some(d => d.cls === 'nan' && d.snan);
+    let s = `<strong>No arithmetic:</strong> ${nm(F.which)} is a NaN, so the result is that NaN${decode(opVal(F.which)).snan ? ', quieted (bit 51 set)' : ''}: <code>${fmtVal(F.bits)}</code>. `;
+    if(nans.length > 1) s += `Several operands are NaN (${nans.map(k => ROLE[k]).join(', ')}): the first in the order <strong>X, Y, Z</strong> wins — the order of the multiply-add, not of the operand numbers. `;
+    const X = ops[0], Y = ops[1];
+    if(F.which === 2 && !ops[2].snan && ((X.cls === 'zero' && Y.cls === 'inf') || (X.cls === 'inf' && Y.cls === 'zero')))
+      s += 'X·Y is 0 × ∞, which would be invalid, but with a QNaN addend Intel returns that NaN and does <strong>not</strong> raise IE (IEEE 754 leaves this to the implementation). ';
+    s += anyS ? 'A signalling NaN operand raises <strong>IE</strong>.' : 'Quiet NaNs propagate silently — no flag.';
+    return s;
+  }
+  if(F.kind === 'invalid'){
+    return F.why === '0×∞'
+      ? '<strong>Invalid:</strong> X·Y is 0 × ∞. The result is the default NaN, <code>QNaN indefinite = 0xFFF8000000000000</code> (sign set, zero payload), and <strong>IE</strong> is raised.'
+      : '<strong>Invalid:</strong> X·Y and Z are infinities of opposite sign, ∞ − ∞. The result is <code>QNaN indefinite = 0xFFF8000000000000</code> and <strong>IE</strong> is raised.';
+  }
+  if(F.kind === 'inf'){
+    return F.why === 'product'
+      ? `X·Y is ${decode(R.x).s ^ decode(R.y).s ? '−' : '+'}∞ and Z is not an infinity of the opposite sign, so the result is exactly <code>${fmtVal(F.bits)}</code> — no rounding, no flag${F.flags.D ? ' (except DE for the subnormal operand)' : ''}.`
+      : `Z is ${fmtVal(R.z)} and X·Y is finite, so the result is exactly <code>${fmtVal(F.bits)}</code> — no rounding, no flag${F.flags.D ? ' (except DE for the subnormal operand)' : ''}.`;
+  }
+  if(F.kind === 'addend')
+    return `X·Y is exactly ${decode(R.x).s ^ decode(R.y).s ? '−' : '+'}0, so the result is Z unchanged: <code>${fmtVal(F.bits)}</code>. Nothing to round.`;
+  if(F.kind === 'zero')
+    return `X·Y and Z are both zero. A sum of two zeros keeps their sign when they agree; otherwise it is +0, or −0 under RD. Result: <code>${fmtVal(F.bits)}</code>.`;
+  return '';
+}
+
+function renderFlags(){
+  const sup = erActive(), w = R.w;
+  for(const [path, fl] of [['F', R.F.flags], ['U', R.unf]]){
+    for(const f of FLAG_ORDER){
+      const el = cells.flags[path][f];
+      const on = !!fl[f];
+      el.className = 'flag' + (on ? ' on' : '') + (on && (sup || (path === 'F' && !w)) ? ' supp' : '') + (f === 'Z' ? ' never' : '');
+      el.title = `${f}E — ${FLAG_NAME[f]}${f === 'Z' ? ' (never raised by a multiply-add)' : ''}: ${on ? 'raised' : 'not raised'}` +
+        (on && sup ? ', but suppressed by SAE' : '') + (path === 'F' && on && !sup && !w ? ', but k1[0] = 0 masks the element' : '');
+    }
+    const any = FLAG_ORDER.some(f => fl[f]);
+    cells.flags[path].note.textContent = path === 'F'
+      ? (sup ? `${RC_ER[er]} implies SAE — nothing reaches MXCSR` : !w ? 'k1[0] = 0 — a masked-off element reports no exceptions' : any ? 'set in MXCSR' : 'no exception')
+      : (any ? `VMULSD: ${flagList(R.P.flags)} · VADDSD: ${flagList(R.A.flags)}${sup ? ` — both ${RC_ER[er]}, so suppressed` : ''}` : 'no exception');
+  }
+}
+function flagList(fl){ const l = FLAG_ORDER.filter(f => fl[f]).map(f => f + 'E'); return l.length ? l.join(' ') : '—'; }
+
+// Highlight whatever the hovered thing is wired to.
+function refreshHover(){
+  const lit = new Set();
+  if(hov){
+    if(hov.kind === 'reg' && hov.lane === 0){ lit.add(`r${hov.r}`); const k = roleOfReg(hov.r); if(k >= 0) lit.add(`c${k}`); }
+    if(hov.kind === 'reg' && hov.lane === 1 && hov.r === 1) lit.add('d1');
+    if(hov.kind === 'chip'){ lit.add(`c${hov.k}`); lit.add(`r${roleReg(hov.k)}`); }
+    if(hov.kind === 'dst' && hov.lane === 0){ for(let k = 0; k < 3; k++){ lit.add(`c${k}`); lit.add(`r${roleReg(k)}`); } }
+    if(hov.kind === 'dst' && hov.lane === 1) lit.add('r1h');
+    if(hov.kind === 'k') lit.add('d0');
+  }
+  for(const r of [1, 2, 3]){
+    cells[r].forEach((el, lane) => el.classList.toggle('lit', (lane === 0 && lit.has(`r${r}`)) || (r === 1 && lane === 1 && lit.has('r1h'))));
+  }
+  for(let k = 0; k < 3; k++) cells.chips[k].classList.toggle('lit', lit.has(`c${k}`));
+  cells.dst[0].style.boxShadow = lit.has('d0') || (hov && hov.kind === 'dst' && hov.lane === 0) ? '0 0 0 3px #639922' : '';
+  cells.dst[1].style.boxShadow = lit.has('d1') || (hov && hov.kind === 'dst' && hov.lane === 1) ? '0 0 0 3px #378ADD' : '';
+  if(cells.bd){
+    cells.bd.colEls.forEach((els, ci) => els.forEach(el => el.classList.toggle('colhl', !!hov && hov.kind === 'col' && hov.ci === ci)));
+  }
+  for(const path of ['F', 'U']) for(const f of FLAG_ORDER)
+    cells.flags[path][f].classList.toggle('lit', !!hov && hov.kind === 'flag' && hov.f === f);
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function resetInfo(){ document.getElementById('info').textContent = 'Hover over any cell to trace the multiply-add.'; }
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  if(!hov){ resetInfo(); return; }
+  const F = R.F;
+  const fused = `round<sub>${RC_NAME[rc()]}</sub>(${fmtVal(R.x)} × ${fmtVal(R.y)} + ${fmtVal(R.z)}) = <strong>${fmtVal(F.bits)}</strong>`;
+
+  if(hov.kind === 'reg' || hov.kind === 'chip'){
+    const r = hov.kind === 'reg' ? hov.r : roleReg(hov.k), lane = hov.kind === 'reg' ? hov.lane : 0;
+    const b = regs[r][lane];
+    const head = `<strong>${regLane(r, lane)} = ${fmtVal(b)}</strong> <code>0x${hex16(b)}</code> (${clsName(b)})`;
+    if(lane === 1){
+      box.innerHTML = r === 1
+        ? `${head} — bits 127:64 of the destination. ${mnemonic()} leaves them alone, so <strong>dst[1] = ${fmtVal(b)}</strong>. (VADDSD xmm1, xmm2, xmm3 would copy xmm2's instead.)`
+        : `${head} — <strong>ignored</strong>: a scalar multiply-add reads only bits 63:0 of ${srcName(r)}.`;
+      return;
+    }
+    const k = roleOfReg(r);
+    const role = k < 2 ? `a multiplicand (${ROLE[k]})` : 'the addend (Z)';
+    box.innerHTML = `${head} is ${role} in <code>${formulaText()}</code>.` +
+      (r === 1 ? ` xmm1 is also the destination: it ends up as ${R.w ? 'the result' : kmode === 'zero' ? '0 (masked, zeroing)' : 'itself (masked, merging)'}.` : '') +
+      ` Fused: ${fused}. Click to edit.`;
+    return;
+  }
+
+  if(hov.kind === 'k'){
+    box.innerHTML = k0
+      ? `<strong>k1[0] = 1</strong> — dst[0] is written with the result ${fmtVal(F.bits)}. Click to toggle.`
+      : `<strong>k1[0] = 0</strong> — the result ${fmtVal(F.bits)} is dropped and its exceptions are not reported; dst[0] ${kmode === 'zero' ? 'is <strong>zeroed</strong>' : `<strong>keeps xmm1[0] = ${fmtVal(regs[1][0])}</strong>`}. Click to toggle.`;
+    return;
+  }
+
+  if(hov.kind === 'dst'){
+    if(hov.lane === 1){
+      box.innerHTML = `<strong>dst[1] = ${fmtVal(regs[1][1])}</strong> &larr; xmm1[1], unchanged. Bits MAXVL-1:128 of the register are zeroed.`;
+      return;
+    }
+    const unf = R.A.bits === F.bits ? 'VMULSD + VADDSD give the same.' : `VMULSD + VADDSD would give <strong>${fmtVal(R.A.bits)}</strong> instead.`;
+    box.innerHTML = R.w
+      ? `<strong>dst[0]</strong> = ${fused}. ${unf}`
+      : `<strong>dst[0] = ${fmtVal(R.dst0)}</strong> — k1[0] = 0, so ${kmode === 'zero' ? 'it is zeroed' : 'xmm1[0] is kept'}; the computed ${fmtVal(F.bits)} is discarded.`;
+    return;
+  }
+
+  if(hov.kind === 'col' && cells.bd){
+    const c = cells.bd.cols[hov.ci], fi = F.kind === 'round' ? F.info : null;
+    if(c.t === 'gap'){ box.innerHTML = `Columns 2^${c.hi} … 2^${c.lo} (${c.hi - c.lo + 1} bit positions) are folded: every row is 0 there.`; return; }
+    if(c.t === 'sticky'){
+      box.innerHTML = `Everything below 2^${cells.bd.lo}, ORed per row. For the exact sum this is part of the <strong>sticky</strong> bit: rounding only needs to know whether anything non-zero is down there.`;
+      return;
+    }
+    const w = c.w;
+    const vals = cells.bd.rows.filter(r => !r.special).map(r => `${r.label} ${r.lead !== undefined && w >= r.e && w <= r.lead ? Number((r.M >> BigInt(w - r.e)) & 1n) : 0}`).join(' · ');
+    let role = '';
+    if(fi) role = w === fi.lsb ? ' — L, the last bit the double keeps' : w === fi.lsb - 1 ? ' — R, the round bit (worth half an ulp)' : w < fi.lsb - 1 ? ' — below R: these OR into the sticky bit' : w <= fi.lead ? ' — one of the bits the double keeps' : fi.up && w === fi.lead + 1 ? ' — where rounding up carried into a new leading bit' : ' — above the leading bit';
+    box.innerHTML = `<strong>Bit weight 2^${w}</strong>${role}. ${vals}.`;
+    return;
+  }
+
+  if(hov.kind === 'flag'){
+    const f = hov.f, onF = R.F.flags[f], onU = R.unf[f];
+    const why = {
+      I: 'an SNaN operand, 0 × ∞, or ∞ − ∞ (but not 0 × ∞ + QNaN on Intel).',
+      D: 'any operand is subnormal (and the result is not a NaN or invalid). DAZ would treat it as zero instead.',
+      Z: 'division by zero — a multiply-add never raises it.',
+      O: 'the rounded result is larger than DBL_MAX; the result is ±∞ or ±DBL_MAX depending on the rounding mode.',
+      U: 'the result is tiny (below 2^−1022 after rounding with unbounded exponent) and inexact. FTZ would flush it to zero.',
+      P: 'the result had to be rounded.',
+    }[f];
+    box.innerHTML = `<strong>${f}E — ${FLAG_NAME[f]}</strong>: raised when ${why} Fused: ${onF ? 'raised' : 'no'}${onF && erActive() ? ' (suppressed by SAE)' : onF && !R.w ? ' (not reported: k1[0] = 0)' : ''}. VMULSD + VADDSD: ${onU ? 'raised' : 'no'}${onU && erActive() ? ` (suppressed: with ${RC_ER[er]} they are SAE too)` : ''}.`;
+    return;
+  }
+  resetInfo();
+}
+
+// ─── Popups ─────────────────────────────────────────────────────────────────
+function openValPopup(r, lane, el, grid){
+  closePopup();
+  const gRect = grid.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+
+  const pop = document.createElement('div');
+  pop.className = 'popup'; pop.id = 'active-popup';
+  pop.style.left = Math.max(130, Math.min(gRect.width - 130, eRect.left + eRect.width/2 - gRect.left)) + 'px';
+  pop.style.bottom = (gRect.bottom - eRect.top + 6) + 'px';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'popup-lbl';
+  const k = lane === 0 ? roleOfReg(r) : -1;
+  lbl.textContent = `${regLane(r, lane)}${k >= 0 ? ` (${ROLE[k]})` : ''} — 1.5, -1e-300, 1+2^-52, inf, nan, snan:0x3, 0x3FF0…`;
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = fmtVal(regs[r][lane]).replace(/−/g, '-').replace('+∞', 'inf').replace('∞', 'inf');
+  inp.spellcheck = false;
+  inp.oninput = () => inp.classList.toggle('bad', parseVal(inp.value) === null);
+  const commitBits = b => { regs[r][lane] = b; closePopup(); render(); updateInfo(); };
+  const commit = raw => { const v = parseVal(raw); if(v === null){ inp.classList.add('bad'); return; } commitBits(v); };
+  inp.onkeydown = ev => {
+    if(ev.key === 'Enter') commit(inp.value);
+    if(ev.key === 'Escape') closePopup();
+  };
+
+  const row = document.createElement('div'); row.className = 'popup-row';
+  const btnOk = document.createElement('button');
+  btnOk.textContent = 'Set';
+  btnOk.onclick = () => commit(inp.value);
+  const btnX = document.createElement('button');
+  btnX.textContent = 'Cancel'; btnX.style.color = 'var(--text3)';
+  btnX.onclick = closePopup;
+  row.appendChild(btnOk); row.appendChild(btnX);
+
+  const qg = document.createElement('div'); qg.className = 'quick-grid';
+  const cur = regs[r][lane];
+  const quick = [
+    ['next ↑', nextUp(cur), 'the next double up (+1 ulp)'],
+    ['next ↓', nextDown(cur), 'the next double down (−1 ulp)'],
+    ['negate', cur ^ SIGN, 'flip the sign bit'],
+    ['0', 0n], ['1', fromNum(1)], ['−1', fromNum(-1)], ['0.1', fromNum(0.1)], ['3', fromNum(3)],
+    ['+∞', INF_BITS], ['QNaN', INF_BITS | QUIET], ['SNaN', INF_BITS | (1n << 50n)],
+    ['MAX', DBL_MAX_BITS, 'DBL_MAX ≈ 1.8e308'],
+    ['2⁻¹⁰²²', 0x0010000000000000n, 'smallest normal'], ['2⁻¹⁰⁷⁴', 1n, 'smallest subnormal'],
+    ['1+2⁻⁵²', 0x3FF0000000000001n, '1 + 1 ulp'], ['2⁻⁵³', fromNum(2 ** -53), 'half an ulp of 1'],
+  ];
+  for(const [t, b, title] of quick){
+    const btn = document.createElement('button');
+    btn.textContent = t;
+    btn.title = (title ? title + ' — ' : '') + fmtVal(b) + ' = 0x' + hex16(b);
+    btn.onclick = () => commitBits(b);
+    qg.appendChild(btn);
+  }
+
+  pop.appendChild(lbl); pop.appendChild(inp); pop.appendChild(row); pop.appendChild(qg);
+  grid.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  function outside(ev){ if(!pop.contains(ev.target) && ev.target !== el && !el.contains(ev.target)) closePopup(); }
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Examples ───────────────────────────────────────────────────────────────
+// Operands by role; MXCSR.RC is set to `rc` (default RN) and any {er} dropped.
+const EXAMPLES = [
+  { name:'0.1 × 10 − 1',          note:'the rounding error of 0.1·10 — unfused gives 0', x:'0.1', y:'10', z:'-1' },
+  { name:'2 × 3 + 1',             note:'exact: nothing to round', x:'2', y:'3', z:'1' },
+  { name:'(1+2⁻⁵²)² − (1+2⁻⁵¹)',  note:'= 2⁻¹⁰⁴ exactly — unfused gives 0', x:'1+2^-52', y:'1+2^-52', z:'-(1+2^-51)' },
+  { name:'(1+2⁻²⁷)² + 2⁻⁵³',      note:'double rounding: unfused lands 1 ulp low', x:'1+2^-27', y:'1+2^-27', z:'2^-53' },
+  { name:'2¹⁰²³ × 2 − 2¹⁰²³',     note:'the product overflows, the sum does not', x:'2^1023', y:'2', z:'-(2^1023)' },
+  { name:'10⁻¹⁶⁰ × 10⁻¹⁶⁰ + 0',   note:'subnormal result: UE + PE', x:'1e-160', y:'1e-160', z:'0' },
+  { name:'2⁻¹⁰⁷⁴ × 2⁵⁴ + 1',      note:'subnormal operand: DE', x:'2^-1074', y:'2^54', z:'1' },
+  { name:'1 × 1 + 2⁻⁶⁰',          note:'RU rounds up to 1+2⁻⁵²', x:'1', y:'1', z:'2^-60', rc:2 },
+  { name:'1 × 1 − 1',             note:'exact zero: +0, or −0 under RD', x:'1', y:'1', z:'-1' },
+  { name:'0 × ∞ + 1',             note:'invalid: QNaN indefinite, IE', x:'0', y:'inf', z:'1' },
+  { name:'0 × ∞ + QNaN',          note:'Intel returns the QNaN, no IE', x:'0', y:'inf', z:'qnan:0x5' },
+  { name:'1 × QNaN + SNaN',       note:'Y beats Z; the SNaN still raises IE', x:'1', y:'qnan:0x2', z:'snan:0x3' },
+];
+function rebuildExMenu(){
+  const menu = document.getElementById('ex-menu');
+  menu.innerHTML = '';
+  for(const ex of EXAMPLES){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.innerHTML = `<span>${ex.name}</span><span class="mv">${ex.note}</span>`;
+    b.onclick = () => { closeExMenu(); applyExample(ex); };
+    menu.appendChild(b);
+  }
+}
+function applyExample(ex){
+  setRoles(ex.x, ex.y, ex.z);
+  mxrc = ex.rc ?? 0; er = -1;   // the notes describe the example under this rounding
+  k0 = 1;
+  closePopup();
+  updatePresentation(); render(); resetInfo();
+}
+function exMenuOutside(e){ if(!document.getElementById('ex-combo').contains(e.target)) closeExMenu(); }
+function openExMenu(){
+  const menu = document.getElementById('ex-menu');
+  if(!menu.hidden) return;
+  menu.hidden = false;
+  document.getElementById('ex-btn').setAttribute('aria-expanded', 'true');
+  document.addEventListener('mousedown', exMenuOutside);
+}
+function closeExMenu(){
+  const menu = document.getElementById('ex-menu');
+  if(menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('ex-btn').setAttribute('aria-expanded', 'false');
+  document.removeEventListener('mousedown', exMenuOutside);
+}
+document.getElementById('ex-btn').addEventListener('click', () => {
+  if(document.getElementById('ex-menu').hidden) openExMenu(); else closeExMenu();
+});
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeExMenu(); });
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const v of VARIANTS){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = v.key;
+  btn.textContent = 'VFMADD' + v.key + 'SD';
+  const n = r => r === 3 ? 'xmm3/m64' : 'xmm' + r;
+  btn.title = `VFMADD${v.key}SD — xmm1 = ${n(v.roles[0])} × ${n(v.roles[1])} + ${n(v.roles[2])}`;
+  btn.addEventListener('click', () => selectVariant(v.key));
+  tabBar.appendChild(btn);
+}
+rebuildExMenu();
+window.addEventListener('hashchange', () => {
+  const p = parseHash(location.hash.replace(/^#/, ''));
+  if(p && p.key !== V.key) selectVariant(p.key);
+});
+
+const initial = parseHash(location.hash.replace(/^#/, ''));
+selectVariant(initial ? initial.key : '132');
+</script>
+</body>
+</html>
