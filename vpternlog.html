@@ -297,17 +297,17 @@
     <span class="title" id="title"></span>
     <span class="badge bb" id="isa-badge"></span>
     <span class="badge bz" id="width-badge"></span>
-    <span class="ctls">
-    <span class="ctl">
+    <div class="ctls">
+    <div class="ctl">
       imm8:
-      <span class="imm-combo" id="imm-combo">
+      <div class="imm-combo" id="imm-combo">
         <input type="text" id="imm-input" class="imm-input" spellcheck="false" autocomplete="off"
                title="Any value 0–255 — hex (CA / 0xCA / CAh), binary (0b11001010) or decimal (0d202). ↑/↓ steps by 1, shift+↑/↓ by 16.">
         <button type="button" class="imm-caret" id="imm-caret" aria-expanded="false"
                 title="Pick a common function">&#9662;</button>
         <div class="imm-menu" id="imm-menu" hidden></div>
-      </span>
-    </span>
+      </div>
+    </div>
     <label class="ctl">
       Width:
       <select id="width" onchange="changeWidth(this.value)"></select>
@@ -324,7 +324,7 @@
       C:
       <select id="srckind" onchange="changeSrcKind(this.value)"></select>
     </label>
-    </span>
+    </div>
   </div>
   <p class="subtitle" id="subtitle"></p>
 

@@ -1,0 +1,31 @@
+#!/bin/sh
+# Checks staged HTML: tidy (markup), inline JS syntax, index.html links.
+# Enable with: git config core.hooksPath hooks
+# Bypass once with: git commit --no-verify
+
+dir=$(dirname "$0")
+fail=0
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.html')
+
+for f in $staged; do
+  if command -v tidy >/dev/null; then
+    out=$(git show ":$f" | tidy -config "$dir/tidyrc" -e 2>&1)
+    if [ $? -ne 0 ]; then
+      echo "$out" | sed "s|^|$f: |"
+      fail=1
+    fi
+  fi
+  git show ":$f" | node "$dir/check-js.js" "$f" || fail=1
+done
+
+# Every page must be linked from index.html, and every local link must exist.
+pages=$(git ls-files --cached -- '*.html' | grep -v '^index\.html$' | sort)
+links=$(git show :index.html | grep -o 'href="[^":]*\.html"' | sed 's/href="//; s/"$//' | sort -u)
+missing=$(printf '%s\n' "$pages" | grep -vxF "$links")
+dangling=$(printf '%s\n' "$links" | grep -vxF "$pages")
+[ -n "$missing" ]  && { echo "index.html: no link to: $missing";  fail=1; }
+[ -n "$dangling" ] && { echo "index.html: link to missing file: $dangling"; fail=1; }
+
+[ $fail -eq 0 ] || echo "pre-commit: checks failed (use --no-verify to skip)"
+exit $fail

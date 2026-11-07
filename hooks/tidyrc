@@ -1,0 +1,3 @@
+# Empty <span>/<div> are placeholders filled in by JS.
+drop-empty-elements: no
+quiet: yes
