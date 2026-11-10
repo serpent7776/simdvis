@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VP2INTERSECTD / VP2INTERSECTQ — Interactive Intersection Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 1000px;
+    position: relative;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; line-height: 1.55; }
+  .subtitle code { font-family: var(--font-mono); font-size: 11px; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); white-space: nowrap; }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bt { background: #B9E4E2; color: #0A3E3B; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bt { background: #0E4B47; color: #B9E4E2; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .hint { font-size: 11px; color: var(--text3); }
+
+  /* ── The comparison matrix ────────────────────────────────────────────────
+     One CSS grid: column 0 holds src1 down the side, row 0 holds src2 across the
+     top, the N×N body is every src1[i] == src2[j] test, the column on the right
+     is the even mask (OR of each row), the row underneath the odd mask (OR of
+     each column). */
+  .scroll { overflow-x: auto; padding: 3px; margin: -3px; }
+  .matrix {
+    display: grid;
+    grid-template-columns: minmax(64px, 88px) repeat(var(--n, 4), minmax(30px, 1fr)) 10px minmax(42px, 56px);
+    gap: 3px;
+    position: relative;
+  }
+  .corner { font-size: 10px; color: var(--text3); font-family: var(--font-mono);
+            display: flex; flex-direction: column; justify-content: flex-end; padding: 0 2px 3px; line-height: 1.35; }
+  .corner .c2 { text-align: right; }
+  .spacer { min-height: 0; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .12s, box-shadow .12s, opacity .12s;
+    min-width: 0; position: relative;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 1px; }
+  .cell-val { font-size: 11px; line-height: 1; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; padding: 0 2px; }
+
+  .s1  { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; height: 30px; flex-direction: row; justify-content: space-between; padding: 0 6px; gap: 4px; }
+  .s1 .cell-idx { margin: 0; }
+  /* after the .s1 base rules, so the narrow-screen overrides win */
+  @media (max-width: 520px) {
+    .card { padding: 1rem; }
+    .matrix { grid-template-columns: minmax(46px, 60px) repeat(var(--n, 4), minmax(24px, 1fr)) 4px minmax(36px, 44px); gap: 2px; }
+    .s1 { padding: 0 3px; }
+    .s1 .cell-idx { display: none; }
+  }
+  .s1:hover { background: #B5D4F4; }
+  .s2  { background: #DFF1F0; border-color: #2E8B87; color: #0A3E3B; cursor: pointer; height: 40px; }
+  .s2:hover { background: #B9E4E2; }
+  .s2.bcst { border-style: dashed; }
+  .s1.lit, .s2.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+
+  .m { height: 30px; cursor: pointer; }
+  .m-hit  { background: #EAF3DE; border-color: #639922; color: #27500A; font-weight: 600; }
+  .m-miss { background: var(--bg2); border-color: var(--border); color: var(--text3); }
+  .m-miss:hover { border-color: var(--border2); }
+  .m.row { box-shadow: inset 0 0 0 30px rgba(239,159,39,.13); }
+  .m.focus { box-shadow: 0 0 0 2px #EF9F27; }
+  .m.dim { opacity: .45; }
+
+  .k  { height: 30px; cursor: default; }
+  .k-on  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; }
+  .k-off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .k.lit { box-shadow: 0 0 0 2.5px #8367C7; }
+  .kodd { height: 40px; }
+  .kev { flex-direction: row; gap: 5px; }
+  .kev .cell-idx { margin: 0; }
+
+  .klbl { display: flex; align-items: center; justify-content: flex-start; padding-left: 2px; }
+  .ktop { display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; }
+
+  @media (prefers-color-scheme: dark) {
+    .s1  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .s1:hover { background: #185FA5; }
+    .s2  { background: #0E4B47; border-color: #2E8B87; color: #B9E4E2; }
+    .s2:hover { background: #14625D; }
+    .s1.lit, .s2.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .m-hit  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .m.row { box-shadow: inset 0 0 0 30px rgba(239,159,39,.16); }
+    .k-on  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .k-off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+  }
+
+  .kres { margin-top: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text2); line-height: 1.7; overflow-wrap: anywhere; }
+  .kres strong { color: var(--text); font-weight: 600; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+
+  .notes { margin-top: .75rem; font-size: 12px; color: var(--text2); line-height: 1.6; }
+  .notes summary { cursor: pointer; color: var(--text); font-weight: 500; font-size: 12px; }
+  .notes ul { margin: .4rem 0 0 1.2rem; }
+  .notes li { margin-bottom: .25rem; }
+  .notes code { font-family: var(--font-mono); font-size: 11px; }
+
+  .popup {
+    position: absolute;
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; width: 180px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .popup button:hover { background: var(--bg3); }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+      <label class="ctl">
+        Width:
+        <select id="width" onchange="changeWidth(this.value)"></select>
+      </label>
+      <label class="ctl">
+        src2:
+        <select id="src2kind" onchange="changeSrc2Kind(this.value)"></select>
+      </label>
+      <label class="ctl">
+        Dest pair:
+        <select id="kpair" onchange="changePair(this.value)">
+          <option value="0">k0 : k1</option>
+          <option value="2">k2 : k3</option>
+          <option value="4">k4 : k5</option>
+          <option value="6">k6 : k7</option>
+        </select>
+      </label>
+      <label class="ctl">
+        Data:
+        <select id="preset" onchange="applyPreset(this.value)">
+          <option value="sorted">sorted sets</option>
+          <option value="dups">duplicates</option>
+          <option value="disjoint">disjoint</option>
+          <option value="same">same set, shuffled</option>
+        </select>
+      </label>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="scroll">
+    <div class="matrix" id="matrix"></div>
+  </div>
+  <div class="kres" id="kres"></div>
+
+  <div class="info" id="info"></div>
+
+  <details class="notes">
+    <summary>Notes</summary>
+    <ul>
+      <li>The destination is always an <strong>even/odd pair</strong> of opmask registers. The ModR/M <code>reg</code> field names one of them; its low bit is ignored, so the even register gets src1's matches and the next one src2's.</li>
+      <li>There is <strong>no write-mask</strong> and no <code>{z}</code>: every element pair is compared, and both mask registers are fully overwritten — bits above the element count are zeroed.</li>
+      <li>Every element of src1 is compared with <strong>every</strong> element of src2 — across 128-bit lanes, unlike most shuffles and unpacks. That is N² comparisons (256 for <code>VP2INTERSECTD zmm</code>).</li>
+      <li>Duplicates only matter as booleans: an element matching three times still sets one bit. To <em>count</em> or <em>pair up</em> matches you need something else, e.g. a <code>VPCMPEQD</code> of src1 against each broadcast element of src2.</li>
+      <li>Typical use: intersecting two sorted ID lists 16 at a time — <code>VPCOMPRESSD</code> with the even mask extracts the common elements from src1.</li>
+      <li>As of 2026 it has shipped on Intel Tiger Lake only (later Intel cores dropped it) and on AMD Zen 5. Check <code>CPUID.(EAX=07H, ECX=0):EDX[8]</code> before using it.</li>
+    </ul>
+  </details>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a href="https://www.felixcloutier.com/x86/vp2intersectd:vp2intersectq" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction semantics ──────────────────────────────────────────────────
+// VP2INTERSECTD/Q compare every element of src1 against every element of src2
+// and write two opmasks:
+//
+//   dest_base := dest_mask_reg_id & ~1
+//   k[dest_base]   := 0;  k[dest_base+1] := 0
+//   FOR i, j in 0..N-1:
+//     match := src1[i] == src2[j]
+//     k[dest_base].bit[i]   |= match      // "src1[i] occurs somewhere in src2"
+//     k[dest_base+1].bit[j] |= match      // "src2[j] occurs somewhere in src1"
+//
+// So the even mask is the OR along each row of the N×N equality matrix and the
+// odd mask the OR down each column. src2 may come from memory with an embedded
+// broadcast (m32bcst / m64bcst), in which case every src2[j] is the same value.
+const SIZES = [
+  { key:'d', name:'D', bytes:4, elemName:'dword' },
+  { key:'q', name:'Q', bytes:8, elemName:'qword' },
+];
+const SIZE_BY_KEY = { d: SIZES[0], q: SIZES[1] };
+
+function parseHash(h){
+  const m = /^vp2intersect(d|q)$/.exec(h);
+  return m ? m[1] : null;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let SZ;                       // current size descriptor
+let N;                        // element count (D: 4/8/16, Q: 2/4/8)
+let src2kind = 'reg';         // 'reg' | 'bcst'
+let kbase = 2;                // even register of the destination pair
+let preset = 'sorted';
+let src1, src2, bval;         // hex strings; bval = the broadcast element
+let hov = null;               // { kind:'m'|'s1'|'s2'|'ke'|'ko', i, j }
+let cells;                    // { s1:[], s2:[], m:[][], ke:[], ko:[] }
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hexW(){ return SZ.bytes * 2; }
+function elemBits(){ return SZ.bytes * 8; }
+function bitsTotal(){ return N * elemBits(); }
+function regName(){ const b = bitsTotal(); return b === 128 ? 'xmm' : b === 256 ? 'ymm' : 'zmm'; }
+function widths(){ return [16 / SZ.bytes, 32 / SZ.bytes, 64 / SZ.bytes]; }
+function kEven(){ return 'k' + kbase; }
+function kOdd(){ return 'k' + (kbase + 1); }
+function instrName(){ return 'vp2intersect' + SZ.key; }
+function bcstName(){ return `m${elemBits()}bcst`; }
+function src2Name(){ return src2kind === 'bcst' ? `${bcstName()} {1to${N}}` : regName() + '3'; }
+
+function toHex(v){
+  const mod = 1n << BigInt(elemBits());
+  v = BigInt(v);
+  if(v < 0n) v += mod;
+  return v.toString(16).toUpperCase().padStart(hexW(), '0');
+}
+// Signed decimal is the compact reading; equality does not care about signedness.
+function dec(hex){
+  const v = BigInt('0x' + hex);
+  const half = 1n << BigInt(elemBits() - 1);
+  return (v >= half ? v - (half << 1n) : v).toString();
+}
+
+function s2(j){ return src2kind === 'bcst' ? bval : src2[j]; }
+function eq(i, j){ return src1[i] === s2(j); }
+function rowHits(i){ const r = []; for(let j=0; j<N; j++) if(eq(i, j)) r.push(j); return r; }
+function colHits(j){ const r = []; for(let i=0; i<N; i++) if(eq(i, j)) r.push(i); return r; }
+function kEvenBit(i){ return rowHits(i).length ? 1 : 0; }
+function kOddBit(j){ return colHits(j).length ? 1 : 0; }
+
+// ─── Seed data ──────────────────────────────────────────────────────────────
+// 16 entries each — enough for the widest form (16 dwords); qwords use the
+// first 8. Shorter widths take a prefix; each preset's prefixes of 2, 4, 8
+// and 16 behave as the comment above it says.
+const PRESETS = {
+  // two ascending ID lists, the canonical use: 8 of 16 in common, off the
+  // diagonal, and at least one match in every prefix
+  sorted:   { a: [3, 9, 14, 21, 27, 30, 42, 55, 61, 70, 77, 81, 90, 96, 103, 120],
+              b: [1, 3, 9, 12, 17, 21, 29, 42, 50, 55, 64, 70, 72, 88, 90, 120],
+              bc: 42 },
+  // repeated values: one bit per element no matter how many partners it has
+  dups:     { a: [5, 5, 7, -1, 5, 8, 7, 0, 5, 3, -1, 9, 7, 2, 5, 6],
+              b: [7, 5, 4, 5, -1, 1, 7, 7, 2, 0, 5, 11, 12, 7, 13, 5],
+              bc: 5 },
+  disjoint: { a: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31],
+              b: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32],
+              bc: 4 },
+  // same values, neighbours swapped: everything matches, but off the diagonal
+  same:     { a: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160],
+              b: null, bc: 70 },
+};
+function seed(i, which){
+  const p = PRESETS[preset];
+  if(which === 'b' && !p.b) return toHex(p.a[i ^ 1]);
+  return toHex((which === 'a' ? p.a : p.b)[i % 16]);
+}
+function initData(){
+  src1 = Array.from({length:N}, (_, i) => seed(i, 'a'));
+  src2 = Array.from({length:N}, (_, i) => seed(i, 'b'));
+  bval = toHex(PRESETS[preset].bc);
+}
+
+// ─── Switching ──────────────────────────────────────────────────────────────
+function selectSize(key){
+  SZ = SIZE_BY_KEY[key] || SIZES[0];
+  N = widths()[2];
+  hov = null;
+  closePopup();
+  initData();
+  rebuildWidthOptions();
+  rebuildSrc2Options();
+  build();
+  updatePresentation();
+  render();
+}
+
+function rebuildWidthOptions(){
+  const sel = document.getElementById('width');
+  sel.innerHTML = '';
+  for(const w of widths()){
+    const o = document.createElement('option');
+    const bits = w * elemBits();
+    o.value = w;
+    o.textContent = `${bits === 128 ? 'XMM' : bits === 256 ? 'YMM' : 'ZMM'} (${w} × ${SZ.elemName})`;
+    sel.appendChild(o);
+  }
+  sel.value = N;
+}
+
+function rebuildSrc2Options(){
+  const sel = document.getElementById('src2kind');
+  sel.innerHTML = '';
+  for(const [v, label] of [['reg', regName() + '3'], ['bcst', `${bcstName()} {1to${N}}`]]){
+    const o = document.createElement('option');
+    o.value = v; o.textContent = label;
+    sel.appendChild(o);
+  }
+  sel.value = src2kind;
+}
+
+function changeWidth(w){
+  const n = parseInt(w);
+  if(n === N) return;
+  hov = null;
+  closePopup();
+  // keep edited values when narrowing; widen with fresh seed values
+  const old = N;
+  N = n;
+  if(n > old){
+    for(let i = old; i < n; i++){ src1.push(seed(i, 'a')); src2.push(seed(i, 'b')); }
+  } else {
+    src1.length = n; src2.length = n;
+  }
+  rebuildSrc2Options();
+  build();
+  updatePresentation();
+  render();
+}
+
+function changeSrc2Kind(v){
+  if(v === src2kind) return;
+  src2kind = v;
+  closePopup();
+  updatePresentation();
+  render();
+}
+
+function changePair(v){
+  kbase = parseInt(v);
+  build();
+  updatePresentation();
+  render();
+}
+
+function applyPreset(v){
+  preset = v;
+  document.getElementById('preset').value = v;
+  closePopup();
+  initData();
+  render();
+}
+
+function updatePresentation(){
+  const name = instrName();
+  document.title = name.toUpperCase() + ' — Interactive Intersection Visualiser';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === SZ.key));
+  document.getElementById('title').textContent =
+    `${name.toUpperCase()} ${kEven()}, ${regName()}2, ${src2Name()}`;
+  document.getElementById('isa-badge').textContent =
+    'AVX512_VP2INTERSECT + ' + (bitsTotal() === 512 ? 'AVX512F' : 'AVX512VL');
+  document.getElementById('width-badge').textContent = `${bitsTotal()}-bit ${regName().toUpperCase()}`;
+  document.getElementById('kpair').value = kbase;
+  document.getElementById('width').value = N;
+  document.getElementById('preset').value = preset;
+  document.getElementById('src2kind').value = src2kind;
+
+  const bc = src2kind === 'bcst'
+    ? ` With <code>${bcstName()}</code> one ${SZ.elemName} from memory stands in for every src2 element, so <code>${kOdd()}</code> is all-ones or all-zeros.`
+    : '';
+  document.getElementById('subtitle').innerHTML =
+    `Compare <strong>every</strong> ${SZ.elemName} of src1 with <strong>every</strong> ${SZ.elemName} of src2 (${N}×${N} = ${N*N} equality tests). ` +
+    `<code>${kEven()}[i]</code> is set if <code>src1[i]</code> equals any src2 element; ` +
+    `<code>${kOdd()}[j]</code> if <code>src2[j]</code> equals any src1 element.${bc}`;
+
+  if(location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+function div(cls, html){
+  const el = document.createElement('div');
+  if(cls) el.className = cls;
+  if(html !== undefined) el.innerHTML = html;
+  return el;
+}
+function makeCell(cls, idx){
+  const el = div('cell ' + cls, `<span class="cell-idx">${idx}</span><span class="cell-val"></span>`);
+  el._val = el.querySelector('.cell-val');
+  return el;
+}
+function hoverOn(el, h){
+  el.addEventListener('mouseenter', () => { hov = h; refreshHover(); updateInfo(); });
+  el.addEventListener('mouseleave', () => { hov = null; refreshHover(); updateInfo(); });
+}
+
+function build(){
+  closePopup();
+  hov = null;            // the old cells (and possibly their indices) are gone
+  const g = document.getElementById('matrix');
+  g.style.setProperty('--n', N);
+  g.innerHTML = '';
+  cells = { s1: [], s2: [], m: [], ke: [], ko: [] };
+
+  // header row: corner, src2[0..N-1], spacer, even-mask label
+  g.appendChild(div('corner', '<span class="c2">src2 &rarr;</span><span>src1 &darr;</span>'));
+  for(let j=0; j<N; j++){
+    const el = makeCell('s2', `[${j}]`);
+    el.onclick = () => openPopup('s2', j, el);
+    hoverOn(el, { kind:'s2', j });
+    g.appendChild(el); cells.s2.push(el);
+  }
+  g.appendChild(div('spacer'));
+  g.appendChild(div('ktop', `<span class="badge bp">${kEven()}</span>`));
+
+  // body rows
+  for(let i=0; i<N; i++){
+    const s = makeCell('s1', `[${i}]`);
+    s.onclick = () => openPopup('s1', i, s);
+    hoverOn(s, { kind:'s1', i });
+    g.appendChild(s); cells.s1.push(s);
+
+    const row = [];
+    for(let j=0; j<N; j++){
+      const m = div('cell m');
+      m.onclick = () => {
+        if(eq(i, j)) return;
+        if(src2kind === 'bcst') bval = src1[i]; else src2[j] = src1[i];
+        render();
+      };
+      hoverOn(m, { kind:'m', i, j });
+      g.appendChild(m); row.push(m);
+    }
+    cells.m.push(row);
+
+    g.appendChild(div('spacer'));
+    const k = makeCell('k kev', `[${i}]`);
+    hoverOn(k, { kind:'ke', i });
+    g.appendChild(k); cells.ke.push(k);
+  }
+
+  // separator row, then the odd mask under the columns
+  const sep = div('spacer'); sep.style.gridColumn = '1 / -1'; sep.style.height = '6px';
+  g.appendChild(sep);
+  g.appendChild(div('klbl', `<span class="badge bp">${kOdd()}</span>`));
+  for(let j=0; j<N; j++){
+    const k = makeCell('k kodd', `[${j}]`);
+    hoverOn(k, { kind:'ko', j });
+    g.appendChild(k); cells.ko.push(k);
+  }
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function render(){
+  for(let i=0; i<N; i++){
+    const el = cells.s1[i];
+    el._val.textContent = dec(src1[i]);
+    el.title = `src1[${i}] = 0x${src1[i]} = ${dec(src1[i])} — click to edit`;
+  }
+  for(let j=0; j<N; j++){
+    const el = cells.s2[j];
+    const v = s2(j);
+    el._val.textContent = dec(v);
+    el.classList.toggle('bcst', src2kind === 'bcst');
+    el.title = src2kind === 'bcst'
+      ? `src2[${j}] = 0x${v} — the broadcast ${bcstName()}, shared by every element — click to edit`
+      : `src2[${j}] = 0x${v} = ${dec(v)} — click to edit`;
+  }
+  for(let i=0; i<N; i++){
+    for(let j=0; j<N; j++){
+      const m = cells.m[i][j];
+      const hit = eq(i, j);
+      m.classList.toggle('m-hit', hit);
+      m.classList.toggle('m-miss', !hit);
+      m.textContent = hit ? '=' : '·';
+      m.title = hit
+        ? `src1[${i}] == src2[${j}] (${dec(src1[i])}) → sets ${kEven()}[${i}] and ${kOdd()}[${j}]`
+        : `src1[${i}] ≠ src2[${j}] — click to ` + (src2kind === 'bcst'
+            ? `set the broadcast ${bcstName()} := ${dec(src1[i])} (every column)`
+            : `make src2[${j}] equal src1[${i}]`);
+    }
+  }
+  for(let i=0; i<N; i++){
+    const b = kEvenBit(i), el = cells.ke[i];
+    el.classList.toggle('k-on', !!b); el.classList.toggle('k-off', !b);
+    el._val.textContent = b;
+    el.title = `${kEven()}[${i}] = ${b} — OR of row ${i}`;
+  }
+  for(let j=0; j<N; j++){
+    const b = kOddBit(j), el = cells.ko[j];
+    el.classList.toggle('k-on', !!b); el.classList.toggle('k-off', !b);
+    el._val.textContent = b;
+    el.title = `${kOdd()}[${j}] = ${b} — OR of column ${j}`;
+  }
+  renderKres();
+  refreshHover();
+  updateInfo();
+}
+
+function maskVal(bitFn){
+  let v = 0n;
+  for(let i=0; i<N; i++) if(bitFn(i)) v |= 1n << BigInt(i);
+  return v;
+}
+function renderKres(){
+  const digits = Math.max(4, N / 4);
+  const line = (name, v) =>
+    `<strong>${name} = 0x${v.toString(16).toUpperCase().padStart(digits, '0')}</strong>` +
+    ` &middot; 0b${v.toString(2).padStart(N, '0')}`;
+  const ev = maskVal(kEvenBit), od = maskVal(kOddBit);
+  const cnt = v => v.toString(2).split('').filter(c => c === '1').length;
+  document.getElementById('kres').innerHTML =
+    `${line(kEven(), ev)} <span class="hint">(${cnt(ev)} of src1's ${N} found in src2)</span><br>` +
+    `${line(kOdd(), od)} <span class="hint">(${cnt(od)} of src2's ${N} found in src1)</span><br>` +
+    `<span class="hint">bit ${N-1} … bit 0${N < 64 ? ` — bits ${N}–63 of both registers are zeroed` : ''}</span>`;
+}
+
+function refreshHover(){
+  const h = hov || {};
+  // the row (src1 index) and column (src2 index) under the pointer, if any
+  const r = (h.kind === 'm' || h.kind === 's1' || h.kind === 'ke') ? h.i : -1;
+  const c = (h.kind === 'm' || h.kind === 's2' || h.kind === 'ko') ? h.j : -1;
+  const cell = h.kind === 'm';
+  const hit = cell && eq(r, c);
+  for(let i=0; i<N; i++){
+    // a whole row/column hover also lights the partners it matched
+    cells.s1[i].classList.toggle('lit', i === r || (!cell && c >= 0 && eq(i, c)));
+    cells.ke[i].classList.toggle('lit', i === r && (!cell || hit));
+    for(let j=0; j<N; j++){
+      const m = cells.m[i][j];
+      const inR = i === r, inC = j === c;
+      m.classList.toggle('focus', cell && inR && inC);
+      m.classList.toggle('row', (inR || inC) && !(cell && inR && inC));
+      m.classList.toggle('dim', !!hov && !cell && !inR && !inC);
+    }
+  }
+  for(let j=0; j<N; j++){
+    cells.s2[j].classList.toggle('lit', j === c || (!cell && r >= 0 && eq(r, j)));
+    cells.ko[j].classList.toggle('lit', j === c && (!cell || hit));
+  }
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+const IDLE = 'Hover a cell to trace a comparison or a mask bit. Click a source element to edit it, or a <strong>·</strong> in the matrix to make that pair equal.';
+function list(xs, name){ return xs.map(x => `${name}[${x}]`).join(', '); }
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  if(!hov){ box.innerHTML = IDLE; return; }
+  const h = hov;
+  if(h.kind === 'm'){
+    const a = src1[h.i], b = s2(h.j);
+    const opnd = `<strong>src1[${h.i}] = ${dec(a)}</strong> <code>0x${a}</code> vs <strong>src2[${h.j}] = ${dec(b)}</strong> <code>0x${b}</code>`;
+    if(eq(h.i, h.j)){
+      const r = rowHits(h.i).length, c = colHits(h.j).length;
+      const extra = (r > 1 || c > 1)
+        ? ` (row ${h.i} has ${r} match${r > 1 ? 'es' : ''}, column ${h.j} has ${c} — the bits are ORed, so extra matches change nothing)`
+        : '';
+      box.innerHTML = `${opnd} &rarr; <strong>equal</strong> &rarr; sets <strong>${kEven()}[${h.i}]</strong> and <strong>${kOdd()}[${h.j}]</strong>${extra}.`;
+    } else {
+      const fix = src2kind === 'bcst'
+        ? `the broadcast ${bcstName()} := ${dec(a)}, which changes every column`
+        : `src2[${h.j}] := ${dec(a)}`;
+      box.innerHTML = `${opnd} &rarr; not equal — this test contributes nothing. Click to set ${fix}.`;
+    }
+    return;
+  }
+  if(h.kind === 's1' || h.kind === 'ke'){
+    const hits = rowHits(h.i);
+    box.innerHTML = `<strong>src1[${h.i}] = ${dec(src1[h.i])}</strong> <code>0x${src1[h.i]}</code> ` +
+      (hits.length
+        ? `equals ${list(hits, 'src2')} &rarr; row ${h.i} has a match &rarr; <strong>${kEven()}[${h.i}] = 1</strong>`
+        : `equals no element of src2 &rarr; row ${h.i} is empty &rarr; <strong>${kEven()}[${h.i}] = 0</strong>`);
+    return;
+  }
+  const v = s2(h.j);
+  const hits = colHits(h.j);
+  const bcNote = src2kind === 'bcst' ? ` (the broadcast ${bcstName()}, same in every column)` : '';
+  box.innerHTML = `<strong>src2[${h.j}] = ${dec(v)}</strong> <code>0x${v}</code>${bcNote} ` +
+    (hits.length
+      ? `equals ${list(hits, 'src1')} &rarr; column ${h.j} has a match &rarr; <strong>${kOdd()}[${h.j}] = 1</strong>`
+      : `equals no element of src1 &rarr; column ${h.j} is empty &rarr; <strong>${kOdd()}[${h.j}] = 0</strong>`);
+}
+
+// ─── Editing ────────────────────────────────────────────────────────────────
+function parseValue(raw){
+  const s = raw.trim();
+  if(/^-?\d+$/.test(s)){
+    const mod = 1n << BigInt(elemBits());
+    const v = BigInt(s);
+    if(v >= mod || v < -(mod >> 1n)) return null;
+    return toHex(v);
+  }
+  const h = s.replace(/^0x/i, '').replace(/^0+(?=.)/, '');
+  if(!/^[0-9a-fA-F]+$/.test(h) || h.length > hexW()) return null;
+  return h.toUpperCase().padStart(hexW(), '0');
+}
+
+function openPopup(which, idx, el){
+  closePopup();
+  const isBc = which === 's2' && src2kind === 'bcst';
+  const cur = which === 's1' ? src1[idx] : s2(idx);
+  const name = isBc ? bcstName() : `${which === 's1' ? 'src1' : 'src2'}[${idx}]`;
+  const host = document.querySelector('.card');
+  const hRect = host.getBoundingClientRect(), eRect = el.getBoundingClientRect();
+
+  const pop = div('popup');
+  pop.id = 'active-popup';
+  const left = Math.max(8, Math.min(eRect.left - hRect.left, hRect.width - 188));
+  pop.style.left = left + 'px';
+  pop.style.top = (eRect.bottom - hRect.top + 6) + 'px';
+
+  pop.appendChild(div('popup-lbl', `${name} — decimal or hex`));
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = dec(cur);
+  const commit = () => {
+    const v = parseValue(inp.value);
+    if(v === null){ inp.style.borderColor = '#E24B4A'; return; }
+    if(which === 's1') src1[idx] = v; else if(isBc) bval = v; else src2[idx] = v;
+    closePopup(); render();
+  };
+  inp.onkeydown = e => { if(e.key === 'Enter') commit(); if(e.key === 'Escape') closePopup(); };
+  pop.appendChild(inp);
+  const row = div('popup-row');
+  const ok = document.createElement('button'); ok.textContent = 'Set'; ok.onclick = commit;
+  const no = document.createElement('button'); no.textContent = 'Cancel'; no.style.color = 'var(--text3)'; no.onclick = closePopup;
+  row.appendChild(ok); row.appendChild(no);
+  pop.appendChild(row);
+  host.appendChild(pop);
+  setTimeout(() => inp.select(), 0);
+
+  const outside = e => { if(!pop.contains(e.target) && e.target !== el) closePopup(); };
+  pop._out = outside;
+  document.addEventListener('mousedown', outside);
+}
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const s of SIZES){
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.instr = s.key;
+  btn.textContent = 'VP2INTERSECT' + s.name;
+  btn.title = `VP2INTERSECT${s.name} — all-pairs ${s.elemName} equality into a pair of opmasks`;
+  btn.addEventListener('click', () => selectSize(s.key));
+  tabBar.appendChild(btn);
+}
+window.addEventListener('hashchange', () => {
+  const k = parseHash(location.hash.replace(/^#/, ''));
+  if(k && k !== SZ.key) selectSize(k);
+});
+
+selectSize(parseHash(location.hash.replace(/^#/, '')) || 'd');
+</script>
+</body>
+</html>
