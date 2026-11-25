@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VPERMB / VPERMW / VPERMD / VPERMQ — Interactive Full-Width Permute Visualiser</title>
+<title>VPERMB / VPERMW / VPERMD / VPERMQ / VPERMPS / VPERMPD — Interactive Full-Width Permute Visualiser</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -298,8 +298,6 @@
       <label class="ctl" id="show-ctl">
         Show:
         <select id="show" onchange="changeShow(this.value)">
-          <option value="hex">hex</option>
-          <option value="char">ASCII</option>
         </select>
       </label>
       <label class="ctl">
@@ -341,7 +339,7 @@
 
 <script>
 // ─── Instruction semantics ──────────────────────────────────────────────────
-// VPERMB/W/D/Q dst {k1}{z}, idx, table
+// VPERMB/W/D/Q, VPERMPS/PD dst {k1}{z}, idx, table
 //
 //   N  := VL / element size              // elements in the register
 //   FOR j := 0 TO N-1:
@@ -358,24 +356,33 @@
 //   VPERMW  AVX512BW      EVEX            XMM/YMM/ZMM
 //   VPERMD  AVX2 / AVX512F  VEX.256, EVEX   YMM/ZMM
 //   VPERMQ  AVX512F       EVEX            YMM/ZMM
+//   VPERMPS AVX2 / AVX512F  VEX.256, EVEX   YMM/ZMM   (as VPERMD, float table)
+//   VPERMPD AVX512F       EVEX            YMM/ZMM   (as VPERMQ, double table)
 //
-// VPERMQ also has an immediate form (AVX2 VEX.256 and EVEX):
-//   VPERMQ dst {k1}{z}, src, imm8
+// VPERMPS/PD use integer indices and move the floats bit-for-bit: no
+// arithmetic, no FP exceptions, NaN payloads and -0 pass through unchanged.
+//
+// VPERMQ and VPERMPD also have an immediate form (AVX2 VEX.256 and EVEX):
+//   VPERMQ/PD dst {k1}{z}, src, imm8
 //   dst.qword[j] := src.qword[(j & ~3) + imm8[2(j&3)+1 : 2(j&3)]]
 // so each 256-bit block is permuted by the same four 2-bit fields.
 //
 // Element values are BigInts so that qwords are exact.
 
+// imm: has the VPERMQ-style imm8 form. fp: the table holds floats.
+// idxName: what one index element is called (always an integer).
 const SIZES = [
-  { key:'b', name:'B', bytes:1, elemName:'byte',  elemNameP:'bytes',  minVB:16, ref:'vpermb',        inLane:'PSHUFB' },
-  { key:'w', name:'W', bytes:2, elemName:'word',  elemNameP:'words',  minVB:16, ref:'vpermd:vpermw', inLane:'PSHUFLW / PSHUFHW' },
-  { key:'d', name:'D', bytes:4, elemName:'dword', elemNameP:'dwords', minVB:32, ref:'vpermd:vpermw', inLane:'PSHUFD' },
-  { key:'q', name:'Q', bytes:8, elemName:'qword', elemNameP:'qwords', minVB:32, ref:'vpermq',        inLane:'PSHUFD' },
+  { key:'b',  name:'B',  bytes:1, elemName:'byte',   elemNameP:'bytes',   idxName:'byte',  minVB:16, ref:'vpermb',        inLane:'PSHUFB' },
+  { key:'w',  name:'W',  bytes:2, elemName:'word',   elemNameP:'words',   idxName:'word',  minVB:16, ref:'vpermd:vpermw', inLane:'PSHUFLW / PSHUFHW' },
+  { key:'d',  name:'D',  bytes:4, elemName:'dword',  elemNameP:'dwords',  idxName:'dword', minVB:32, ref:'vpermd:vpermw', inLane:'PSHUFD' },
+  { key:'q',  name:'Q',  bytes:8, elemName:'qword',  elemNameP:'qwords',  idxName:'qword', minVB:32, ref:'vpermq',        inLane:'PSHUFD', imm:true },
+  { key:'ps', name:'PS', bytes:4, elemName:'float',  elemNameP:'floats',  idxName:'dword', minVB:32, ref:'vpermps',       inLane:'VPERMILPS', fp:true, twin:'d' },
+  { key:'pd', name:'PD', bytes:8, elemName:'double', elemNameP:'doubles', idxName:'qword', minVB:32, ref:'vpermpd',       inLane:'VPERMILPD', fp:true, twin:'q', imm:true },
 ];
 const SIZE_BY_KEY = Object.fromEntries(SIZES.map(s => [s.key, s]));
 
 function parseHash(h){
-  const m = /^vperm(b|w|d|q)$/.exec(h);
+  const m = /^vperm(b|w|d|q|ps|pd)$/.exec(h);
   return m ? m[1] : null;
 }
 
@@ -397,7 +404,10 @@ function sextets(s){
 // Default table: every byte of element i holds the tag (0xA + lane) << 4 | offset,
 // so the first hex digit names the lane an element came from and the second
 // its offset within that lane (byte: B3, dword: B3B3B3B3).
+// Float tables use 10·lane + offset + 0.5 (lane 1, float 2 = 12.5): the same
+// idea in decimal, exact in float32, and never 0 so it can't pass for a zeroed dst.
 function tagTable(i){
+  if(SZ.fp) return numToBits(10 * laneOf(i) + i % E + 0.5);
   const tag = ((0xA + laneOf(i)) << 4) | (i % E);
   return BigInt('0x' + hex2(tag).repeat(SZ.bytes));
 }
@@ -418,7 +428,7 @@ const PRESETS = [
 ];
 // VPERMQ imm8 presets: four 2-bit fields, low field first.
 // On ZMM the same imm8 drives each 256-bit half, so the labels say so.
-const zmmOr = (ymm, zmm) => () => VB === 64 ? zmm : ymm;
+const zmmOr = (ymm, zmm) => () => (VB === 64 ? zmm : ymm).replace(/qword/g, SZ.elemName);
 const IMM_PRESETS = [
   { key:'reverse',  label:'Reverse each 256 bits (0x1B)', imm:0x1B },
   { key:'identity', label:'Identity (0xE4)',              imm:0xE4 },
@@ -439,7 +449,7 @@ let VB = 64;              // vector length in bytes (16/32/64)
 let N = 64;               // elements in the register
 let E = 16;               // elements per 128-bit lane
 let LANES = 4;
-let form = 'vec';         // VPERMQ only: 'vec' (index register) | 'imm' (imm8)
+let form = 'vec';         // VPERMQ/PD only: 'vec' (index register) | 'imm' (imm8)
 let imm8 = 0x1B;
 let kmode = 'off';
 let show = 'hex';
@@ -456,7 +466,7 @@ function hexE(v){ return v.toString(16).toUpperCase().padStart(SZ.bytes * 2, '0'
 function ebits(){ return SZ.bytes * 8; }
 function emask(){ return (1n << BigInt(ebits())) - 1n; }
 function topBit(){ return 1n << BigInt(ebits() - 1); }
-function immForm(){ return SZ.key === 'q' && form === 'imm'; }
+function immForm(){ return !!SZ.imm && form === 'imm'; }
 function nbits(){ return immForm() ? 2 : Math.log2(N); }
 function field(j){ return j & 3; }                          // imm8 field used by dst[j]
 function sel(j){ return (imm8 >> (2 * field(j))) & 3; }
@@ -471,19 +481,63 @@ function printable(v){ return v >= 0x20 && v < 0x7F; }
 function esc(s){ return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
 function mnemonic(){ return 'VPERM' + SZ.name; }
 
+// ─── Floats ─────────────────────────────────────────────────────────────────
+// Table values are stored as bit patterns; these convert for the current size.
+const FDV = new DataView(new ArrayBuffer(8));
+function bitsToNum(v){
+  if(SZ.bytes === 4){ FDV.setUint32(0, Number(v)); return FDV.getFloat32(0); }
+  FDV.setBigUint64(0, v); return FDV.getFloat64(0);
+}
+function numToBits(x){
+  if(SZ.bytes === 4){ FDV.setFloat32(0, x); return BigInt(FDV.getUint32(0)); }
+  FDV.setFloat64(0, x); return FDV.getBigUint64(0);
+}
+// Shortest decimal that reads back as the same float32/float64.
+function fmtFloat(v){
+  const x = bitsToNum(v);
+  if(Number.isNaN(x)) return 'NaN';
+  if(x === Infinity) return '+Inf';
+  if(x === -Infinity) return '-Inf';
+  if(Object.is(x, -0)) return '-0';
+  let y = x;
+  if(SZ.bytes === 4)
+    for(let p=1; p<=9; p++){ y = Number(x.toPrecision(p)); if(Math.fround(y) === x) break; }
+  // JS prints up to 1e21 in full; take exponent notation when it is shorter.
+  const d = String(y), e = y.toExponential();
+  return e.length < d.length ? e : d;
+}
+// A float as decimal (1.5, -2, 1e-3, inf, nan) or raw bits as 0x..; null if
+// invalid. With bareHex, digits without 0x are bits too, as on the integer tabs.
+// Decimals go through a double first, so a float32 can (very rarely) be
+// double-rounded.
+function parseFloatBits(raw, bareHex){
+  const s = raw.trim();
+  if(/^0x[0-9a-f]+$/i.test(s) || (bareHex && /^[0-9a-f]+$/i.test(s))){
+    const v = BigInt(/^0x/i.test(s) ? s : '0x' + s);
+    return v >> BigInt(ebits()) ? null : v;
+  }
+  if(/^[+-]?inf(inity)?$/i.test(s)) return numToBits(s[0] === '-' ? -Infinity : Infinity);
+  if(/^[+-]?nan$/i.test(s)) return numToBits(NaN) | (s[0] === '-' ? topBit() : 0n);
+  if(/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return numToBits(Number(s));
+  return null;
+}
+
 function dstOf(j){
   if(masked(j)) return kmode === 'zero' ? { kind:'zero', val:0n } : { kind:'keep', val:dstPrev[j] };
   return { kind:'val', val: tbl[id(j)] };
 }
 
-// Cell text: hex digits, or the character in ASCII mode (bytes only).
+// Cell text: hex digits, the character in ASCII mode (bytes only), or the
+// float value (VPERMPS/PD).
 function cellText(v){
+  if(show === 'float' && SZ.fp) return fmtFloat(v);
   const n = Number(v);
   if(show === 'char' && SZ.bytes === 1 && printable(n)) return n === 0x20 ? '␠' : String.fromCharCode(n);
   return hexE(v);
 }
 // Info text: always hex, plus the character in ASCII mode.
 function infoVal(v){
+  if(SZ.fp) return show === 'float' ? `${fmtFloat(v)} (0x${hexE(v)})` : `0x${hexE(v)} (${fmtFloat(v)})`;
   const n = Number(v);
   const c = show === 'char' && SZ.bytes === 1 && printable(n) ? ` '${esc(String.fromCharCode(n))}'` : '';
   return `0x${hexE(v)}${c}`;
@@ -501,7 +555,7 @@ function isaLabel(){
   switch(SZ.key){
     case 'b': return full ? 'AVX512_VBMI' : 'AVX512_VBMI + AVX512VL';
     case 'w': return full ? 'AVX512BW' : 'AVX512BW + AVX512VL';
-    case 'q': if(!immForm()) return full ? 'AVX512F' : 'AVX512F + AVX512VL';
+    case 'q': case 'pd': if(!immForm()) return full ? 'AVX512F' : 'AVX512F + AVX512VL';
       // fall through: the imm8 form has an AVX2 encoding, like VPERMD
     default:  return full ? 'AVX512F' : kmode === 'off' ? 'AVX2' : 'AVX512F + AVX512VL';
   }
@@ -518,7 +572,8 @@ function applyPreset(key){
   if(p.width && p.width !== VB){ resize(p.width); build(); }
   if(immForm()) imm8 = p.imm; else fillIdx(p);
   tbl = Array.from({length:N}, (_, i) => p.table ? BigInt(p.table(i)) : tagTable(i));
-  show = p.show || 'hex';   // the hex tags have no printable characters
+  if(p.show) show = p.show;
+  else if(!SZ.fp) show = 'hex';   // the hex tags have no printable characters
   kmask = kmask.map(() => 1);
   sync();
 }
@@ -531,7 +586,7 @@ function resize(vb){
     if(N < old) arr.length = N;
     else for(let i = old; i < N; i++) arr.push(fill(i));
   }
-  dstPrev = Array.from({length:N}, () => BigInt('0x' + 'EE'.repeat(SZ.bytes)));
+  dstPrev = Array.from({length:N}, () => SZ.fp ? numToBits(-1) : BigInt('0x' + 'EE'.repeat(SZ.bytes)));
 }
 
 function selectSize(key){
@@ -540,7 +595,7 @@ function selectSize(key){
   SZ = SIZE_BY_KEY[key];
   idx = []; tbl = []; kmask = []; N = 0;       // new element size: start from fresh data
   resize(Math.max(VB, SZ.minVB));
-  if(SZ.key !== 'b') show = 'hex';
+  show = SZ.fp ? 'float' : 'hex';
   build();
   applyPreset(findPreset(preset) ? preset : 'reverse');
 }
@@ -561,7 +616,7 @@ function changeForm(f){
   if(f === form) return;
   closePopup();
   form = f;
-  // The table (VPERMQ's r/m operand in both forms) and k1 stay; only the
+  // The table (VPERMQ/PD's r/m operand in both forms) and k1 stay; only the
   // index side is re-derived from the preset, if one is active.
   const p = findPreset(preset);
   if(p){ if(immForm()) imm8 = p.imm; else fillIdx(p); }
@@ -659,10 +714,14 @@ function sync(){
   }
   ws.value = VB;
   document.getElementById('kmode').value = kmode;
-  document.getElementById('show').value = show;
+  const ss = document.getElementById('show');
+  ss.innerHTML = '';
+  for(const [v, t] of SZ.fp ? [['float', 'value'], ['hex', 'hex bits']] : [['hex', 'hex'], ['char', 'ASCII']])
+    ss.appendChild(el('option', '', t)).value = v;
+  ss.value = show;
   document.getElementById('form').value = form;
-  document.getElementById('show-ctl').hidden = SZ.key !== 'b';
-  document.getElementById('form-ctl').hidden = SZ.key !== 'q';
+  document.getElementById('show-ctl').hidden = SZ.key !== 'b' && !SZ.fp;
+  document.getElementById('form-ctl').hidden = !SZ.imm;
   document.getElementById('imm-ctl').hidden = !immForm();
   document.getElementById('imm-btn').textContent = '0x' + hex2(imm8);
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === SZ.key));
@@ -677,14 +736,15 @@ function sync(){
   document.getElementById('isa-badge').textContent = isaLabel();
   document.getElementById('width-badge').textContent = `${vbits()}-bit ${r.toUpperCase()}`;
   document.getElementById('subtitle').innerHTML = immForm()
-    ? `Immediate qword permute: <code>dst[j] = src[4·⌊j/4⌋ + imm8[2(j mod 4)+1 : 2(j mod 4)]]</code>. ` +
-      `Four 2-bit fields pick qwords within each 256-bit block, crossing its two 128-bit lanes` +
+    ? `Immediate ${en} permute: <code>dst[j] = src[4·⌊j/4⌋ + imm8[2(j mod 4)+1 : 2(j mod 4)]]</code>. ` +
+      `Four 2-bit fields pick ${enp} within each 256-bit block, crossing its two 128-bit lanes` +
       (VB === 64 ? `; both halves of the ZMM register use the same imm8 and never mix.` : '.')
     : `Full-width ${en} permute: <code>dst[j] = table[idx[j] &amp; 0x${hex2(N - 1)}]</code> for each of the ${N} ${enp}. ` +
       `Any table ${en} can land in any position${LANES > 1 ? ', across 128-bit lanes' : ''}. ` +
-      `The indices are the first source (<code>${r}2</code>), the table is the second (<code>${r}3/m${vbits()}</code>).`;
+      `The indices are the first source (<code>${r}2</code>), the table is the second (<code>${r}3/m${vbits()}</code>).` +
+      (SZ.fp ? ` The indices are integer ${SZ.idxName}s; the ${enp} are copied bit-for-bit.` : '');
   document.getElementById('tbl-hint').textContent = immForm()
-    ? `${r}2/m${vbits()}: the ${N} source qwords · click to edit`
+    ? `${r}2/m${vbits()}: the ${N} source ${enp} · click to edit`
     : `${r}3/m${vbits()}: the ${N} ${enp} to pick from · click to edit`;
   document.getElementById('isa-ref').href = 'https://www.felixcloutier.com/x86/' + SZ.ref;
   document.getElementById('notes').innerHTML = notesHtml();
@@ -826,8 +886,8 @@ function drawArrows(js){
 function idleText(){
   const en = SZ.elemName;
   return immForm()
-    ? `Hover a qword to trace it. Click an <strong>imm8</strong> field to edit it — then click a <strong>table</strong> qword in the same 256-bit block to point it there. Click a table qword to change its value.`
-    : `Hover a ${en} to trace it. Click an <strong>idx</strong> ${en} to edit it — then click any <strong>table</strong> ${en} to point it there. Click a table ${en} to change its value.`;
+    ? `Hover a ${en} to trace it. Click an <strong>imm8</strong> field to edit it — then click a <strong>table</strong> ${en} in the same 256-bit block to point it there. Click a table ${en} to change its value.`
+    : `Hover a ${en} to trace it. Click an <strong>idx</strong> ${SZ.idxName} to edit it — then click any <strong>table</strong> ${en} to point it there. Click a table ${en} to change its value.`;
 }
 
 function maskTail(j){
@@ -847,7 +907,7 @@ function updateInfo(){
     for(let j=0; j<N; j++) if(id(j) === t) readers.push(j);
     const head = `<strong>table[${t}] = ${infoVal(tbl[t])}</strong>${where(t)}`;
     if(!readers.length){
-      box.innerHTML = `${head} — no ${immForm() ? 'imm8 field' : 'idx ' + SZ.elemName} selects it, so it doesn't appear in dst.`;
+      box.innerHTML = `${head} — no ${immForm() ? 'imm8 field' : 'idx ' + SZ.idxName} selects it, so it doesn't appear in dst.`;
       return;
     }
     const live = readers.filter(j => !masked(j)), dead = readers.filter(j => masked(j));
@@ -889,6 +949,11 @@ function updateInfo(){
       notes.push(`0x${hexE(raw)} is past the end of the ${N}-${SZ.elemName} table, so it wraps`);
     }
   }
+  if(SZ.fp && !masked(j)){
+    const x = bitsToNum(tbl[t]);
+    if(Number.isNaN(x) || Object.is(x, -0) || (x !== 0 && Math.abs(x) < (SZ.bytes === 4 ? 2 ** -126 : 2 ** -1022)))
+      notes.push(`${Number.isNaN(x) ? 'a NaN keeps its payload' : Object.is(x, -0) ? '-0 keeps its sign' : 'a denormal is not flushed'} — the bits are copied, not computed`);
+  }
   s += masked(j) ? maskTail(j) : ` → <strong>dst[${j}] = ${infoVal(tbl[t])}</strong>`;
   if(LANES > 1 && laneOf(t) !== laneOf(j)) notes.unshift(`crosses from lane ${laneOf(t)} into lane ${laneOf(j)} — ${SZ.inLane} can't do that`);
   if(notes.length) s += ` <span class="hint">— ${notes.join('; ')}</span>`;
@@ -900,48 +965,59 @@ function notesHtml(){
   const k = SZ.key, m = mnemonic(), en = SZ.elemName, enp = SZ.elemNameP;
   const L = [];
   const avx2Req = 'Without a mask, the YMM form needs only <code>AVX2</code> (Intel since Haswell, AMD since Excavator). Masking or ZMM needs <code>AVX512F</code>, plus <code>AVX512VL</code> for YMM.';
+  const fp = !!SZ.fp;
+  const twin = fp ? `VPERM${SIZE_BY_KEY[SZ.twin].name}` : null;
+  const bitwise = `<strong>Floats are moved, not computed.</strong> The bits are copied unchanged: NaN payloads, <code>-0</code> and denormals pass through, MXCSR (rounding, DAZ/FTZ) is not consulted and no floating-point exception can be raised. ${m} gives exactly the same bits as the integer <code>${twin}</code>; the FP form only keeps the data in the floating-point domain, which on some CPUs avoids a bypass delay when the result feeds FP arithmetic.`;
   if(immForm()){
-    L.push(`<strong>Operand order.</strong> <code>VPERMQ dst, src, imm8</code>: one source (ModR/M r/m, so it can come from memory) and a constant selector. Intrinsics: <code>_mm256_permute4x64_epi64(src, imm8)</code> (AVX2) and <code>_mm512_permutex_epi64(src, imm8)</code>.`);
-    L.push(`<strong>Four 2-bit fields.</strong> <code>imm8[2j+1:2j]</code> picks the source qword for qword <code>j</code> of each 256-bit block. That crosses the 128-bit lane boundary, which <code>PSHUFD</code> can't, but never the 256-bit one.`);
-    L.push(`<strong>ZMM reuses the imm8 for both halves.</strong> dst qwords 4–7 read only from source qwords 4–7. To move qwords between the halves use the vector-index form (set <em>Index</em> to <em>vector</em>), or <code>VSHUFI64X2</code> for whole 128-bit lanes.`);
-    L.push(`Encodings: VEX.256 (AVX2, no masking) and EVEX.256/512, where the source may also be an <code>m64bcst</code> broadcast. There is no XMM form: two qwords are swapped with <code>PSHUFD</code>.`);
+    const sfx = fp ? 'pd' : 'epi64';
+    L.push(`<strong>Operand order.</strong> <code>${m} dst, src, imm8</code>: one source (ModR/M r/m, so it can come from memory) and a constant selector. Intrinsics: <code>_mm256_permute4x64_${sfx}(src, imm8)</code> (AVX2) and <code>_mm512_permutex_${sfx}(src, imm8)</code>.`);
+    L.push(`<strong>Four 2-bit fields.</strong> <code>imm8[2j+1:2j]</code> picks the source ${en} for ${en} <code>j</code> of each 256-bit block. That crosses the 128-bit lane boundary, which <code>${SZ.inLane}</code> can't, but never the 256-bit one.`);
+    L.push(`<strong>ZMM reuses the imm8 for both halves.</strong> dst ${enp} 4–7 read only from source ${enp} 4–7. To move ${enp} between the halves use the vector-index form (set <em>Index</em> to <em>vector</em>), or <code>${fp ? 'VSHUFF64X2' : 'VSHUFI64X2'}</code> for whole 128-bit lanes.`);
+    L.push(`Encodings: VEX.256 (AVX2, no masking) and EVEX.256/512, where the source may also be an <code>m64bcst</code> broadcast. There is no XMM form: two ${enp} are swapped with <code>${fp ? 'VPERMILPD' : 'PSHUFD'}</code>.`);
+    if(fp) L.push(bitwise);
     L.push(`Bits above the vector length are zeroed, as for every VEX/EVEX instruction.`);
-    L.push(`The floating-point twin is <code>VPERMPD ymm, ymm/m256, imm8</code>.`);
+    L.push(fp ? `The integer twin is <code>VPERMQ ymm, ymm/m256, imm8</code>.` : `The floating-point twin is <code>VPERMPD ymm, ymm/m256, imm8</code>.`);
     L.push(avx2Req);
     return L.map(x => `<li>${x}</li>`).join('');
   }
 
-  const intr = { b:'epi8', w:'epi16', d:'epi32', q:'epi64' }[k];
-  let oo = `<strong>Operand order.</strong> Intel syntax is <code>${m} dst, idx, table</code>: the indices are the <em>first</em> source (${k === 'd' ? 'VEX.vvvv / EVEX.vvvv' : 'EVEX.vvvv'}, always a register) and the table is the second (ModR/M r/m, so it can come straight from memory). ` +
+  const intr = { b:'epi8', w:'epi16', d:'epi32', q:'epi64', ps:'ps', pd:'pd' }[k];
+  let oo = `<strong>Operand order.</strong> Intel syntax is <code>${m} dst, idx, table</code>: the indices are the <em>first</em> source (${k === 'd' || k === 'ps' ? 'VEX.vvvv / EVEX.vvvv' : 'EVEX.vvvv'}, always a register${fp ? ` of integer ${SZ.idxName}s` : ''}) and the table is the second (ModR/M r/m, so it can come straight from memory). ` +
     `The AVX-512 intrinsic keeps that order: <code>_mm512_permutexvar_${intr}(idx, table)</code>. AT&amp;T syntax reverses it: <code>vperm${k} table, idx, dst</code>.`;
-  if(k === 'd') oo += ` The AVX2 intrinsic does <strong>not</strong> keep it: <code>_mm256_permutevar8x32_epi32(table, idx)</code> takes the table first.`;
+  if(k === 'd' || k === 'ps') oo += ` The AVX2 intrinsic does <strong>not</strong> keep it: <code>_mm256_permutevar8x32_${intr}(table, idx)</code> takes the table first.`;
   L.push(oo);
-  L.push(`<strong>Lanes don't matter.</strong> Unlike <code>${SZ.inLane}</code>, which only move${k === 'b' || k === 'd' || k === 'q' ? 's' : ''} data within each 128-bit lane, every destination ${en} can take any table ${en}. The orange dot on a dst ${en} marks one that came from another lane.`);
+  if(fp) L.push(bitwise);
+  L.push(`<strong>Lanes don't matter.</strong> Unlike <code>${SZ.inLane}</code>, which only move${k === 'w' ? '' : 's'} data within each 128-bit lane, every destination ${en} can take any table ${en}. The orange dot on a dst ${en} marks one that came from another lane.`);
 
   const rng = [];
   for(const vb of [16, 32, 64]) if(vb >= SZ.minVB)
     rng.push(`[${Math.log2(vb / SZ.bytes) - 1}:0] for ${vb === 16 ? 'XMM' : vb === 32 ? 'YMM' : 'ZMM'}`);
-  L.push(`<strong>Only the low log<sub>2</sub>(N) index bits are used</strong>: bits ${rng.join(', ')}. The rest of each ${en} is ignored, so indices wrap around the table.`);
+  L.push(`<strong>Only the low log<sub>2</sub>(N) index bits are used</strong>: bits ${rng.join(', ')}. The rest of each ${SZ.idxName} is ignored, so indices wrap around the table.`);
 
   if(k === 'b')
     L.push(`<strong>Bit 7 does not zero.</strong> <code>PSHUFB</code> writes 0 where the index has bit 7 set; <code>VPERMB</code> ignores bit 7. To get the same effect use zero-masking, e.g. <code>vpmovb2m k1, idx</code> then <code>knotq k1, k1</code> and <code>vpermb dst{k1}{z}, idx, table</code>.`);
-  if(k === 'd' || k === 'q')
-    L.push(`<strong>No XMM form.</strong> Within 128 bits, ${k === 'd' ? 'four dwords' : 'two qwords'} can already be rearranged with <code>PSHUFD</code>${k === 'd' ? ' or <code>VPERMILPS</code>' : ''}, so ${m} starts at YMM.`);
-  if(k === 'q')
-    L.push(`<code>VPERMQ</code> also has an <strong>imm8 form</strong>, the one AVX2 has: no index register, but it only permutes within each 256-bit block. Set <em>Index</em> to <em>imm8</em> to see it.`);
+  if(SZ.minVB === 32){
+    const four = SZ.bytes === 4 ? `four ${enp}` : `two ${enp}`;
+    const how = { d:'<code>PSHUFD</code> or <code>VPERMILPS</code>', q:'<code>PSHUFD</code>',
+                  ps:'<code>VPERMILPS</code> (which also has a variable-index form)', pd:'<code>VPERMILPD</code> or <code>SHUFPD</code>' }[k];
+    L.push(`<strong>No XMM form.</strong> Within 128 bits, ${four} can already be rearranged with ${how}, so ${m} starts at YMM.`);
+  }
+  if(SZ.imm)
+    L.push(`<code>${m}</code> also has an <strong>imm8 form</strong>, the one AVX2 has: no index register, but it only permutes within each 256-bit block. Set <em>Index</em> to <em>imm8</em> to see it.`);
 
   if(k === 'b' || k === 'w')
     L.push(`No embedded broadcast (${enp} have no <code>{1toN}</code> form), and there is no VEX or legacy encoding: it is EVEX-only.`);
-  else if(k === 'd')
+  else if(k === 'd' || k === 'ps')
     L.push(`Encodings: VEX.256 (AVX2, no masking) and EVEX.256/512. EVEX allows an <code>m32bcst</code> table, but a broadcast table has every entry equal, so the result is just that value.`);
   else
-    L.push(`This form is EVEX-only (AVX2's VEX <code>VPERMQ</code> is the imm8 form). EVEX allows an <code>m64bcst</code> table, but a broadcast table has every entry equal, so the result is just that value.`);
-  L.push(`Bits above the vector length are zeroed, as for every ${k === 'd' ? 'VEX/' : ''}EVEX instruction.`);
+    L.push(`This form is EVEX-only (AVX2's VEX <code>${m}</code> is the imm8 form). EVEX allows an <code>m64bcst</code> table, but a broadcast table has every entry equal, so the result is just that value.`);
+  L.push(`Bits above the vector length are zeroed, as for every ${k === 'd' || k === 'ps' ? 'VEX/' : ''}EVEX instruction.`);
 
-  const others = SIZES.filter(s => s !== SZ).map(s => `<code>VPERM${s.name}</code>`);
-  let tt = `For lookups across <em>two</em> tables use <code>VPERMI2${SZ.name}</code> / <code>VPERMT2${SZ.name}</code>, which use one more index bit. The other element sizes are ${others.slice(0, -1).join(', ')} and ${others[others.length - 1]}.`;
+  const others = SIZES.filter(s => s !== SZ && !!s.fp === fp).map(s => `<code>VPERM${s.name}</code>`);
+  let tt = `For lookups across <em>two</em> tables use <code>VPERMI2${SZ.name}</code> / <code>VPERMT2${SZ.name}</code>, which use one more index bit. ${others.length > 1 ? `The other element sizes are ${others.slice(0, -1).join(', ')} and ${others[others.length - 1]}.` : `The other precision is ${others[0]}.`}`;
   if(k === 'd') tt += ` <code>VPERMPS</code> is the floating-point twin.`;
   if(k === 'q') tt += ` <code>VPERMPD</code> is the floating-point twin.`;
+  if(fp) tt += ` <code>${twin}</code> is the integer twin.`;
   L.push(tt);
 
   if(k === 'b')
@@ -952,6 +1028,8 @@ function notesHtml(){
     w: 'Requires <code>AVX512BW</code>, plus <code>AVX512VL</code> for XMM/YMM. Intel since Skylake-SP, AMD since Zen 4.',
     d: avx2Req,
     q: 'Requires <code>AVX512F</code>, plus <code>AVX512VL</code> for YMM. Intel since Skylake-SP, AMD since Zen 4.',
+    ps: avx2Req,
+    pd: 'Requires <code>AVX512F</code>, plus <code>AVX512VL</code> for YMM. Intel since Skylake-SP, AMD since Zen 4.',
   }[k]);
   return L.map(x => `<li>${x}</li>`).join('');
 }
@@ -1036,7 +1114,7 @@ function openIdxPopup(j, anchor){
   const lo = 2 * field(j), b0 = base(j);
   const canPick = t => !imm || (t >= b0 && t < b0 + 4);
   const pop = imm
-    ? popupAt(anchor, `imm8[${lo+1}:${lo}] — 0 to 3<br>or click a table qword ${b0}–${b0+3} to point at it` +
+    ? popupAt(anchor, `imm8[${lo+1}:${lo}] — 0 to 3<br>or click a table ${SZ.elemName} ${b0}–${b0+3} to point at it` +
         (VB === 64 ? '<br>(the other 256-bit half uses this field too)' : ''))
     : popupAt(anchor, `idx[${j}] — decimal, 0x.. hex or 0b.. binary<br>or click a table ${SZ.elemName} to point at it`);
   editing = j;
@@ -1073,6 +1151,25 @@ function openIdxPopup(j, anchor){
 }
 
 function openTblPopup(t, anchor){
+  if(SZ.fp){
+    // A NaN is edited as bits: "NaN" alone would lose its sign and payload.
+    const bits = show === 'hex' || Number.isNaN(bitsToNum(tbl[t]));
+    const pop = popupAt(anchor, bits
+      ? `table[${t}] — raw bits in hex<br>or a number (1.5, -2e3, inf, nan)`
+      : `table[${t}] — a number (1.5, -2e3, inf, nan)<br>or raw bits as 0x..`);
+    addInput(pop, bits ? hexE(tbl[t]) : fmtFloat(tbl[t]), v => {
+      const b = parseFloatBits(v, bits);
+      if(b === null) return false;
+      tbl[t] = b; markCustom(); sync();
+    });
+    addQuick(pop, [
+      ['0',     () => { tbl[t] = 0n; }],
+      ['NaN',   () => { tbl[t] = numToBits(NaN); }],
+      ['reset', () => { tbl[t] = tagTable(t); }],
+    ]);
+    onOutside(pop, anchor);
+    return;
+  }
   const byte = SZ.bytes === 1;
   const pop = popupAt(anchor, `table[${t}] — hex ${SZ.elemName}${byte ? ", or 'c' for a character" : ''}`);
   addInput(pop, hexE(tbl[t]), v => {
@@ -1117,7 +1214,7 @@ const tabBar = document.getElementById('tabs');
 for(const s of SIZES){
   const btn = el('button', 'tab', 'VPERM' + s.name);
   btn.dataset.instr = s.key;
-  btn.title = `VPERM${s.name} — full-width ${s.elemName} permute`;
+  btn.title = `VPERM${s.name} — full-width ${s.fp ? (s.bytes === 4 ? 'single' : 'double') + '-precision float' : s.elemName} permute`;
   btn.addEventListener('click', () => selectSize(s.key));
   tabBar.appendChild(btn);
 }
