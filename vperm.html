@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VPERMB / VPERMW / VPERMD / VPERMQ — Interactive Full-Width Permute Visualiser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeede8;
+    --text: #1a1a18;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --border: rgba(0,0,0,0.12);
+    --border2: rgba(0,0,0,0.22);
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --lbl: 52px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c;
+      --bg2: #272725;
+      --bg3: #2e2e2c;
+      --text: #e8e6df;
+      --text2: #9c9a92;
+      --text3: #6e6c66;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.2);
+    }
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 960px;
+    position: relative;
+  }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 0.5px solid var(--border); background: var(--bg2);
+    color: var(--text2); cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tab:hover { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+  .tab.active {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border2); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text2);
+  }
+
+  .header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: .25rem; }
+  .title { font-size: 15px; font-weight: 500; font-family: var(--font-mono); }
+  .subtitle { font-size: 12px; color: var(--text2); margin-bottom: 1rem; line-height: 1.55; }
+  .subtitle code { font-family: var(--font-mono); font-size: 11px; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; font-family: var(--font-mono); white-space: nowrap; }
+  .bb { background: #B5D4F4; color: #042C53; }
+  .ba { background: #FAC775; color: #412402; }
+  .bg { background: #C0DD97; color: #173404; }
+  .bp { background: #D8C9F4; color: #2A1356; }
+  .bz { background: #D3D1C7; color: #2C2C2A; }
+
+  @media (prefers-color-scheme: dark) {
+    .bb { background: #0C447C; color: #B5D4F4; }
+    .ba { background: #633806; color: #FAC775; }
+    .bg { background: #27500A; color: #C0DD97; }
+    .bp { background: #3A2070; color: #D8C9F4; }
+    .bz { background: #444441; color: #D3D1C7; }
+  }
+
+  select {
+    font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .ctl { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .ctls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  .ctl[hidden] { display: none; }
+  .imm-btn {
+    font-size: 11px; padding: 2px 7px; border-radius: 5px; cursor: pointer;
+    font-family: var(--font-mono); font-weight: 500;
+    background: #FAEEDA; border: 0.5px solid #EF9F27; color: #633806;
+  }
+  .imm-btn:hover { background: #FAC775; }
+  @media (prefers-color-scheme: dark) {
+    .imm-btn { background: #633806; color: #FAC775; }
+    .imm-btn:hover { background: #854F0B; }
+  }
+
+  .hint { font-size: 11px; color: var(--text3); }
+  .row-lbl { font-size: 11px; color: var(--text2); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* ── Layout ───────────────────────────────────────────────────────────────
+     Every register row is a grid: one label column, then 16 byte columns (one
+     128-bit lane); a word/dword/qword cell spans 2/4/8 of them. The table is
+     drawn as one row per lane; below it, one block per destination lane holds
+     the idx, k1 and dst elements for that lane. A single canvas over the whole
+     area carries the arrows, so they can cross lanes — which is the point of
+     VPERMB/W/D/Q. */
+  .vis { position: relative; }
+  #arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 4; }
+  .grid {
+    display: grid;
+    grid-template-columns: var(--lbl) repeat(16, minmax(0, 1fr));
+    gap: 3px;
+  }
+  .grid + .grid { margin-top: 3px; }
+  .rl {
+    font-size: 10px; font-family: var(--font-mono); color: var(--text3);
+    display: flex; align-items: center; justify-content: flex-start; padding-left: 2px;
+    border-radius: 4px; transition: color .12s, background .12s;
+  }
+  .rl.lit { color: #854F0B; background: rgba(239,159,39,.18); }
+  .gap { height: 60px; }
+
+  .block { padding-top: 8px; }
+  .block + .block { margin-top: 10px; border-top: 0.5px dashed var(--border); padding-top: 10px; }
+  .block-hdr { font-size: 11px; color: var(--text2); font-family: var(--font-mono); margin-bottom: 5px; display: flex; align-items: center; gap: 6px; }
+  .lane-tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--text2); border: 0.5px solid var(--border);
+  }
+  .krow[hidden] { display: none; }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0.5px solid; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500; transition: background .12s, box-shadow .12s, opacity .12s;
+    min-width: 0; position: relative; height: 40px;
+  }
+  .cell-idx { font-size: 9px; font-weight: 400; opacity: .55; margin-bottom: 2px; }
+  .cell-val { font-size: 11px; line-height: 1; white-space: nowrap; overflow: hidden; max-width: 100%; }
+
+  .tb  { background: #E6F1FB; border-color: #378ADD; color: #0C447C; cursor: pointer; }
+  .tb:hover { background: #B5D4F4; }
+  .tb.lit { background: #FAC775; border-color: #EF9F27; color: #412402; box-shadow: 0 0 0 2px #EF9F27; }
+  .tb.pick { cursor: crosshair; }
+
+  .ix  { background: #FAEEDA; border-color: #EF9F27; color: #633806; cursor: pointer; }
+  .ix:hover { background: #FAC775; }
+  .ix.ign { border-style: dashed; border-color: #E24B4A; }
+  .ix.active { box-shadow: 0 0 0 2.5px #EF9F27; }
+  .ix.editing { box-shadow: 0 0 0 2.5px #E24B4A; }
+
+  .km  { background: #EEE7FA; border-color: #8367C7; color: #2A1356; cursor: pointer; height: 28px; }
+  .km:hover { background: #D8C9F4; }
+  .km.off { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .km.off:hover { background: #E4E1D5; }
+  .km.active { box-shadow: 0 0 0 2.5px #8367C7; }
+
+  .d-val  { background: #EAF3DE; border-color: #639922; color: #27500A; }
+  .d-zer  { background: #F1EFE8; border-color: #888780; color: #5F5E5A; }
+  .d-keep { background: #F4F0FA; border-color: #8367C7; color: #2A1356; }
+  .dst.active { box-shadow: 0 0 0 2.5px #639922; }
+  .dst.x::after {
+    content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px;
+    border-radius: 50%; background: #EF9F27;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .rl.lit { color: #FAC775; background: rgba(239,159,39,.16); }
+    .tb  { background: #0C447C; border-color: #378ADD; color: #B5D4F4; }
+    .tb:hover { background: #185FA5; }
+    .tb.lit { background: #633806; border-color: #EF9F27; color: #FAC775; box-shadow: 0 0 0 2px #EF9F27; }
+    .ix  { background: #633806; border-color: #EF9F27; color: #FAC775; }
+    .ix:hover { background: #854F0B; }
+    .ix.ign { border-color: #E24B4A; }
+    .km  { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+    .km:hover { background: #4F2D94; }
+    .km.off { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .km.off:hover { background: #3A3A38; }
+    .d-val  { background: #27500A; border-color: #639922; color: #C0DD97; }
+    .d-zer  { background: #2C2C2A; border-color: #5F5E5A; color: #888780; }
+    .d-keep { background: #3A2070; border-color: #8367C7; color: #D8C9F4; }
+  }
+
+  @media (max-width: 600px) {
+    :root { --lbl: 30px; }
+    .card { padding: 1rem; }
+    .grid { gap: 2px; }
+    .grid + .grid { margin-top: 2px; }
+    .cell { height: 30px; border-radius: 4px; }
+    .km { height: 22px; }
+    .cell-idx { display: none; }
+    .cell-val { font-size: 9px; }
+    .rl { font-size: 8px; padding-left: 0; }
+    .rl .badge { padding: 1px 3px; font-size: 9px; }
+    .gap { height: 44px; }
+  }
+
+  .kres { margin-top: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text2); line-height: 1.7; overflow-wrap: anywhere; }
+  .kres strong { color: var(--text); font-weight: 600; white-space: pre-wrap; }
+
+  .info {
+    font-size: 12px; color: var(--text2);
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 9px 13px; line-height: 1.6; min-height: 40px;
+    margin-top: .75rem;
+  }
+  .info strong { color: var(--text); }
+  .info code { font-family: var(--font-mono); font-size: 11px; }
+  .info .ign { text-decoration: line-through; opacity: .55; }
+
+  .notes { margin-top: .75rem; font-size: 12px; color: var(--text2); line-height: 1.6; }
+  .notes summary { cursor: pointer; color: var(--text); font-weight: 500; font-size: 12px; }
+  .notes ul { margin: .4rem 0 0 1.2rem; }
+  .notes li { margin-bottom: .25rem; }
+  .notes code { font-family: var(--font-mono); font-size: 11px; }
+
+  .popup {
+    position: absolute;
+    background: var(--bg); border: 0.5px solid var(--border2);
+    border-radius: var(--radius); padding: 8px; z-index: 50;
+    display: flex; flex-direction: column; gap: 5px; width: 200px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  .popup-lbl { font-size: 10px; color: var(--text3); font-family: var(--font-mono); line-height: 1.4; }
+  .popup input[type=text] {
+    font-family: var(--font-mono); font-size: 12px; width: 100%;
+    padding: 4px 7px; border-radius: 4px; border: 0.5px solid var(--border2);
+    background: var(--bg2); color: var(--text);
+  }
+  .popup-row { display: flex; gap: 4px; }
+  .popup button {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text);
+    cursor: pointer; flex: 1; font-family: var(--font-mono);
+  }
+  .popup button:hover { background: var(--bg3); }
+
+  footer {
+    margin-top: 1.5rem; padding-top: 1rem;
+    border-top: 0.5px solid var(--border);
+    font-size: 11px; color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  footer a { color: var(--text3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  footer a:hover { color: var(--text2); }
+  .gh-icon { width: 14px; height: 14px; fill: currentColor; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="header">
+    <span class="title" id="title"></span>
+    <span class="badge bb" id="isa-badge"></span>
+    <span class="badge bz" id="width-badge"></span>
+    <span class="ctls">
+      <label class="ctl" id="form-ctl">
+        Index:
+        <select id="form" onchange="changeForm(this.value)">
+          <option value="vec">vector</option>
+          <option value="imm">imm8</option>
+        </select>
+      </label>
+      <span class="ctl" id="imm-ctl">
+        imm8:
+        <button class="imm-btn" id="imm-btn" type="button" onclick="openImmPopup(this)"></button>
+      </span>
+      <label class="ctl">
+        Width:
+        <select id="width" onchange="changeWidth(this.value)"></select>
+      </label>
+      <label class="ctl">
+        Mask:
+        <select id="kmode" onchange="changeKmode(this.value)">
+          <option value="off">none</option>
+          <option value="merge">{k1} merge</option>
+          <option value="zero">{k1}{z} zero</option>
+        </select>
+      </label>
+      <label class="ctl" id="show-ctl">
+        Show:
+        <select id="show" onchange="changeShow(this.value)">
+          <option value="hex">hex</option>
+          <option value="char">ASCII</option>
+        </select>
+      </label>
+      <label class="ctl">
+        Preset:
+        <select id="preset" onchange="applyPreset(this.value)"></select>
+      </label>
+    </span>
+  </div>
+  <p class="subtitle" id="subtitle"></p>
+
+  <div class="vis" id="vis">
+    <canvas id="arrows"></canvas>
+    <div class="row-lbl">
+      <span class="badge bb">table</span>
+      <span class="hint" id="tbl-hint"></span>
+    </div>
+    <div id="tbl"></div>
+    <div class="gap"></div>
+    <div id="blocks"></div>
+  </div>
+  <div class="kres" id="kres"></div>
+
+  <div class="info" id="info"></div>
+
+  <details class="notes">
+    <summary>Notes</summary>
+    <ul id="notes"></ul>
+  </details>
+
+  <footer>
+    <a href="index.html">&larr; All visualisers</a>
+    <a href="https://github.com/serpent7776/simdvis">
+      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      simdvis
+    </a>
+    <a id="isa-ref" href="https://www.felixcloutier.com/x86/vpermb" target="_blank" rel="noopener">Intel ISA reference ↗</a>
+  </footer>
+</div>
+
+<script>
+// ─── Instruction semantics ──────────────────────────────────────────────────
+// VPERMB/W/D/Q dst {k1}{z}, idx, table
+//
+//   N  := VL / element size              // elements in the register
+//   FOR j := 0 TO N-1:
+//     id := idx.elem[j][log2(N)-1:0]
+//     IF no writemask OR k1[j]:  dst.elem[j] := table.elem[id]
+//     ELSE IF zeroing:           dst.elem[j] := 0
+//     ELSE                       dst.elem[j] unchanged
+//   dst[MAXVL-1:VL] := 0
+//
+// The index can point anywhere in the register: no per-lane restriction, and
+// no "bit 7 means zero" rule as in PSHUFB.
+//
+//   VPERMB  AVX512_VBMI   EVEX            XMM/YMM/ZMM
+//   VPERMW  AVX512BW      EVEX            XMM/YMM/ZMM
+//   VPERMD  AVX2 / AVX512F  VEX.256, EVEX   YMM/ZMM
+//   VPERMQ  AVX512F       EVEX            YMM/ZMM
+//
+// VPERMQ also has an immediate form (AVX2 VEX.256 and EVEX):
+//   VPERMQ dst {k1}{z}, src, imm8
+//   dst.qword[j] := src.qword[(j & ~3) + imm8[2(j&3)+1 : 2(j&3)]]
+// so each 256-bit block is permuted by the same four 2-bit fields.
+//
+// Element values are BigInts so that qwords are exact.
+
+const SIZES = [
+  { key:'b', name:'B', bytes:1, elemName:'byte',  elemNameP:'bytes',  minVB:16, ref:'vpermb',        inLane:'PSHUFB' },
+  { key:'w', name:'W', bytes:2, elemName:'word',  elemNameP:'words',  minVB:16, ref:'vpermd:vpermw', inLane:'PSHUFLW / PSHUFHW' },
+  { key:'d', name:'D', bytes:4, elemName:'dword', elemNameP:'dwords', minVB:32, ref:'vpermd:vpermw', inLane:'PSHUFD' },
+  { key:'q', name:'Q', bytes:8, elemName:'qword', elemNameP:'qwords', minVB:32, ref:'vpermq',        inLane:'PSHUFD' },
+];
+const SIZE_BY_KEY = Object.fromEntries(SIZES.map(s => [s.key, s]));
+
+function parseHash(h){
+  const m = /^vperm(b|w|d|q)$/.exec(h);
+  return m ? m[1] : null;
+}
+
+const B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const B64_TEXT = 'Many hands make light work; one VPERMB does 64!!';   // 48 bytes → 64 sextets
+
+// What VPMULTISHIFTQB (after a byte shuffle) would hand to VPERMB: each 3 input
+// bytes become four 6-bit indices, most significant first.
+function sextets(s){
+  const b = Array.from(s, c => c.charCodeAt(0));
+  const out = [];
+  for(let i=0; i+2<b.length; i+=3){
+    const [x, y, z] = [b[i], b[i+1], b[i+2]];
+    out.push(x >> 2, ((x & 3) << 4) | (y >> 4), ((y & 15) << 2) | (z >> 6), z & 63);
+  }
+  return out;
+}
+
+// Default table: every byte of element i holds the tag (0xA + lane) << 4 | offset,
+// so the first hex digit names the lane an element came from and the second
+// its offset within that lane (byte: B3, dword: B3B3B3B3).
+function tagTable(i){
+  const tag = ((0xA + laneOf(i)) << 4) | (i % E);
+  return BigInt('0x' + hex2(tag).repeat(SZ.bytes));
+}
+
+// Vector-index presets. idx(i) may return a Number or a BigInt.
+const PRESETS = [
+  { key:'reverse',  label:'Reverse whole register', idx: i => N - 1 - i },
+  { key:'identity', label:'Identity',               idx: i => i },
+  { key:'lanes',    label:'Reverse 128-bit lanes',  idx: i => (LANES - 1 - laneOf(i)) * E + i % E },
+  { key:'rotate',   label:() => `Rotate by 1 ${SZ.elemName}`, idx: i => (i + 1) % N },
+  { key:'bcast',    label:() => `Broadcast last ${SZ.elemName}`, idx: () => N - 1 },
+  { key:'evenodd',  label:'Evens, then odds',       idx: i => i < N/2 ? 2*i : 2*(i - N/2) + 1 },
+  { key:'top',      label:() => SZ.key === 'b' ? 'Bit 7 set (no zeroing!)' : 'Top bit set (ignored)',
+                    idx: i => topBit() | BigInt(N - 1 - i) },
+  { key:'wrap',     label:'Out of range (wraps)',   idx: i => (N - 1 - i) + N },
+  { key:'b64',      label:'base64 lookup (ZMM)',    only:'b',
+                    idx: i => sextets(B64_TEXT)[i], table: i => B64_ALPHABET.charCodeAt(i), show:'char', width:64 },
+];
+// VPERMQ imm8 presets: four 2-bit fields, low field first.
+// On ZMM the same imm8 drives each 256-bit half, so the labels say so.
+const zmmOr = (ymm, zmm) => () => VB === 64 ? zmm : ymm;
+const IMM_PRESETS = [
+  { key:'reverse',  label:'Reverse each 256 bits (0x1B)', imm:0x1B },
+  { key:'identity', label:'Identity (0xE4)',              imm:0xE4 },
+  { key:'lanes',    label:zmmOr('Swap 128-bit lanes (0x4E)', 'Swap lanes in each 256 bits (0x4E)'), imm:0x4E },
+  { key:'rotate',   label:zmmOr('Rotate by 1 qword (0x39)',  'Rotate each 256 bits by 1 qword (0x39)'), imm:0x39 },
+  { key:'bcast',    label:zmmOr('Broadcast qword 3 (0xFF)',  'Broadcast qwords 3 and 7 (0xFF)'), imm:0xFF },
+  { key:'bcast0',   label:zmmOr('Broadcast qword 0 (0x00)',  'Broadcast qwords 0 and 4 (0x00)'), imm:0x00 },
+  { key:'dup',      label:zmmOr('Repeat low 128 bits (0x44)', 'Repeat lanes 0 and 2 (0x44)'), imm:0x44 },
+  { key:'evenodd',  label:zmmOr('Evens, then odds (0xD8)',   'Evens, then odds, per 256 bits (0xD8)'), imm:0xD8 },
+];
+function presetList(){ return immForm() ? IMM_PRESETS : PRESETS.filter(p => !p.only || p.only === SZ.key); }
+function findPreset(key){ return presetList().find(p => p.key === key); }
+function presetLabel(p){ return typeof p.label === 'function' ? p.label() : p.label; }
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let SZ = SIZE_BY_KEY.b;   // current element size
+let VB = 64;              // vector length in bytes (16/32/64)
+let N = 64;               // elements in the register
+let E = 16;               // elements per 128-bit lane
+let LANES = 4;
+let form = 'vec';         // VPERMQ only: 'vec' (index register) | 'imm' (imm8)
+let imm8 = 0x1B;
+let kmode = 'off';
+let show = 'hex';
+let preset = 'reverse';
+let idx, tbl, kmask, dstPrev;   // BigInt arrays (kmask: 0/1 numbers)
+let hov = null;           // { kind:'t'|'i'|'k'|'d', j }
+let editing = -1;         // idx[j] whose popup is open (table clicks then pick)
+let swallow = false;      // a table element was just picked: its click must not open the table popup
+let cells;                // { t:[], tl:[], i:[], k:[], d:[], krows:[] }
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function hex2(v){ return v.toString(16).toUpperCase().padStart(2, '0'); }
+function hexE(v){ return v.toString(16).toUpperCase().padStart(SZ.bytes * 2, '0'); }
+function ebits(){ return SZ.bytes * 8; }
+function emask(){ return (1n << BigInt(ebits())) - 1n; }
+function topBit(){ return 1n << BigInt(ebits() - 1); }
+function immForm(){ return SZ.key === 'q' && form === 'imm'; }
+function nbits(){ return immForm() ? 2 : Math.log2(N); }
+function field(j){ return j & 3; }                          // imm8 field used by dst[j]
+function sel(j){ return (imm8 >> (2 * field(j))) & 3; }
+function base(j){ return j & ~3; }                          // first qword of j's 256-bit block
+function id(j){ return immForm() ? base(j) + sel(j) : Number(idx[j] & BigInt(N - 1)); }
+function rawIdx(j){ return immForm() ? BigInt(sel(j)) : idx[j]; }
+function laneOf(i){ return Math.floor(i / E); }
+function regName(){ return VB === 16 ? 'xmm' : VB === 32 ? 'ymm' : 'zmm'; }
+function vbits(){ return VB * 8; }
+function masked(j){ return kmode !== 'off' && !kmask[j]; }
+function printable(v){ return v >= 0x20 && v < 0x7F; }
+function esc(s){ return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function mnemonic(){ return 'VPERM' + SZ.name; }
+
+function dstOf(j){
+  if(masked(j)) return kmode === 'zero' ? { kind:'zero', val:0n } : { kind:'keep', val:dstPrev[j] };
+  return { kind:'val', val: tbl[id(j)] };
+}
+
+// Cell text: hex digits, or the character in ASCII mode (bytes only).
+function cellText(v){
+  const n = Number(v);
+  if(show === 'char' && SZ.bytes === 1 && printable(n)) return n === 0x20 ? '␠' : String.fromCharCode(n);
+  return hexE(v);
+}
+// Info text: always hex, plus the character in ASCII mode.
+function infoVal(v){
+  const n = Number(v);
+  const c = show === 'char' && SZ.bytes === 1 && printable(n) ? ` '${esc(String.fromCharCode(n))}'` : '';
+  return `0x${hexE(v)}${c}`;
+}
+// Low byte of an index in binary, ignored bits struck through.
+function bitsHtml(raw){
+  const b = Number(raw & 0xFFn).toString(2).padStart(8, '0');
+  const k = 8 - nbits();
+  return `<span class="ign">${SZ.bytes > 1 ? '…' : ''}${b.slice(0, k)}</span>${b.slice(k)}`;
+}
+function where(t){ return LANES > 1 ? ` (lane ${laneOf(t)}, ${SZ.elemName} ${t % E})` : ''; }
+
+function isaLabel(){
+  const full = VB === 64;
+  switch(SZ.key){
+    case 'b': return full ? 'AVX512_VBMI' : 'AVX512_VBMI + AVX512VL';
+    case 'w': return full ? 'AVX512BW' : 'AVX512BW + AVX512VL';
+    case 'q': if(!immForm()) return full ? 'AVX512F' : 'AVX512F + AVX512VL';
+      // fall through: the imm8 form has an AVX2 encoding, like VPERMD
+    default:  return full ? 'AVX512F' : kmode === 'off' ? 'AVX2' : 'AVX512F + AVX512VL';
+  }
+}
+
+// ─── Data ───────────────────────────────────────────────────────────────────
+function fillIdx(p){ idx = Array.from({length:N}, (_, i) => BigInt(p.idx(i)) & emask()); }
+
+function applyPreset(key){
+  closePopup();
+  const p = findPreset(key);
+  if(!p){ preset = ''; sync(); return; }
+  preset = key;
+  if(p.width && p.width !== VB){ resize(p.width); build(); }
+  if(immForm()) imm8 = p.imm; else fillIdx(p);
+  tbl = Array.from({length:N}, (_, i) => p.table ? BigInt(p.table(i)) : tagTable(i));
+  show = p.show || 'hex';   // the hex tags have no printable characters
+  kmask = kmask.map(() => 1);
+  sync();
+}
+
+// Change the vector length, keeping what can be kept.
+function resize(vb){
+  const old = N;
+  VB = vb; N = VB / SZ.bytes; E = 16 / SZ.bytes; LANES = VB / 16;
+  for(const [arr, fill] of [[tbl, tagTable], [kmask, () => 1], [idx, i => BigInt(i)]]){
+    if(N < old) arr.length = N;
+    else for(let i = old; i < N; i++) arr.push(fill(i));
+  }
+  dstPrev = Array.from({length:N}, () => BigInt('0x' + 'EE'.repeat(SZ.bytes)));
+}
+
+function selectSize(key){
+  if(SZ.key === key && cells) return;
+  closePopup();
+  SZ = SIZE_BY_KEY[key];
+  idx = []; tbl = []; kmask = []; N = 0;       // new element size: start from fresh data
+  resize(Math.max(VB, SZ.minVB));
+  if(SZ.key !== 'b') show = 'hex';
+  build();
+  applyPreset(findPreset(preset) ? preset : 'reverse');
+}
+
+function changeWidth(w){
+  const vb = parseInt(w);
+  if(vb === VB) return;
+  closePopup();
+  resize(vb);
+  const p = findPreset(preset);
+  if(p && !p.width){ if(!immForm()) fillIdx(p); }   // presets scale with the register
+  else preset = '';                                // base64 needs 64 entries: keep the data and let the indices wrap
+  build();
+  sync();
+}
+
+function changeForm(f){
+  if(f === form) return;
+  closePopup();
+  form = f;
+  // The table (VPERMQ's r/m operand in both forms) and k1 stay; only the
+  // index side is re-derived from the preset, if one is active.
+  const p = findPreset(preset);
+  if(p){ if(immForm()) imm8 = p.imm; else fillIdx(p); }
+  else markCustom();
+  build();
+  sync();
+}
+
+function changeKmode(m){
+  kmode = m;
+  for(const r of cells.krows) r.hidden = kmode === 'off';
+  sync();
+}
+
+function changeShow(v){ show = v; sync(); }
+
+function markCustom(){
+  const p = immForm() && IMM_PRESETS.find(q => q.imm === imm8);
+  preset = p ? p.key : '';
+}
+
+// ─── Construction ───────────────────────────────────────────────────────────
+function el(tag, cls, html){
+  const e = document.createElement(tag);
+  if(cls) e.className = cls;
+  if(html !== undefined) e.innerHTML = html;
+  return e;
+}
+function makeCell(cls, label){
+  const c = el('div', 'cell ' + cls, `<span class="cell-idx">${label}</span><span class="cell-val"></span>`);
+  c.style.gridColumn = `span ${SZ.bytes}`;
+  c._val = c.lastChild;
+  return c;
+}
+function hoverOn(e, h){
+  e.addEventListener('mouseenter', () => { hov = h; refreshHover(); });
+  e.addEventListener('mouseleave', () => { hov = null; refreshHover(); });
+}
+
+function build(){
+  cells = { t: [], tl: [], i: [], k: [], d: [], krows: [] };
+  const tg = document.getElementById('tbl');
+  tg.innerHTML = '';
+  for(let L=0; L<LANES; L++){
+    const g = el('div', 'grid');
+    const lbl = el('div', 'rl', LANES > 1 ? `lane ${L}` : '');
+    lbl.title = `table ${SZ.elemNameP} ${L*E}–${L*E+E-1}`;
+    g.appendChild(lbl); cells.tl.push(lbl);
+    for(let b=0; b<E; b++){
+      const t = L*E + b;
+      const c = makeCell('tb', `[${t}]`);
+      c.dataset.t = t;
+      c.onclick = () => { if(swallow){ swallow = false; return; } openTblPopup(t, c); };
+      hoverOn(c, { kind:'t', j:t });
+      g.appendChild(c); cells.t.push(c);
+    }
+    tg.appendChild(g);
+  }
+
+  const bl = document.getElementById('blocks');
+  bl.innerHTML = '';
+  for(let L=0; L<LANES; L++){
+    const blk = el('div', 'block');
+    if(LANES > 1) blk.appendChild(el('div', 'block-hdr',
+      `<span class="lane-tag">dst lane ${L}</span><span class="hint">${SZ.elemNameP} ${L*E}–${L*E+E-1}</span>`));
+    for(const [kind, badge] of [['i', `<span class="badge ba">${immForm() ? 'imm8' : 'idx'}</span>`],
+                                ['k', '<span class="badge bp">k1</span>'],
+                                ['d', '<span class="badge bg">dst</span>']]){
+      const g = el('div', 'grid' + (kind === 'k' ? ' krow' : ''));
+      g.appendChild(el('div', 'rl', badge));
+      for(let b=0; b<E; b++){
+        const j = L*E + b;
+        const lbl = kind === 'i' && immForm() ? `[${2*field(j)+1}:${2*field(j)}]` : `[${j}]`;
+        const c = makeCell(kind === 'i' ? 'ix' : kind === 'k' ? 'km' : 'dst', lbl);
+        if(kind === 'i') c.onclick = () => openIdxPopup(j, c);
+        if(kind === 'k') c.onclick = () => { kmask[j] ^= 1; sync(); };
+        hoverOn(c, { kind, j });
+        g.appendChild(c); cells[kind].push(c);
+      }
+      if(kind === 'k'){ g.hidden = kmode === 'off'; cells.krows.push(g); }
+      blk.appendChild(g);
+    }
+    bl.appendChild(blk);
+  }
+  hov = null;
+}
+
+// ─── Rendering ──────────────────────────────────────────────────────────────
+function sync(){
+  const ws = document.getElementById('width');
+  ws.innerHTML = '';
+  for(const vb of [16, 32, 64]) if(vb >= SZ.minVB){
+    const nm = vb === 16 ? 'XMM' : vb === 32 ? 'YMM' : 'ZMM';
+    ws.appendChild(el('option', '', `${nm} (${vb / SZ.bytes} ${SZ.elemNameP})`)).value = vb;
+  }
+  ws.value = VB;
+  document.getElementById('kmode').value = kmode;
+  document.getElementById('show').value = show;
+  document.getElementById('form').value = form;
+  document.getElementById('show-ctl').hidden = SZ.key !== 'b';
+  document.getElementById('form-ctl').hidden = SZ.key !== 'q';
+  document.getElementById('imm-ctl').hidden = !immForm();
+  document.getElementById('imm-btn').textContent = '0x' + hex2(imm8);
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.instr === SZ.key));
+  rebuildPresetOptions();
+
+  const r = regName(), m = mnemonic(), en = SZ.elemName, enp = SZ.elemNameP;
+  const dm = kmode === 'off' ? '' : kmode === 'merge' ? ' {k1}' : ' {k1}{z}';
+  document.title = `${m} — Interactive Full-Width ${en[0].toUpperCase() + en.slice(1)} Permute Visualiser`;
+  document.getElementById('title').textContent = immForm()
+    ? `${m} ${r}1${dm}, ${r}2/m${vbits()}, 0x${hex2(imm8)}`
+    : `${m} ${r}1${dm}, ${r}2, ${r}3/m${vbits()}`;
+  document.getElementById('isa-badge').textContent = isaLabel();
+  document.getElementById('width-badge').textContent = `${vbits()}-bit ${r.toUpperCase()}`;
+  document.getElementById('subtitle').innerHTML = immForm()
+    ? `Immediate qword permute: <code>dst[j] = src[4·⌊j/4⌋ + imm8[2(j mod 4)+1 : 2(j mod 4)]]</code>. ` +
+      `Four 2-bit fields pick qwords within each 256-bit block, crossing its two 128-bit lanes` +
+      (VB === 64 ? `; both halves of the ZMM register use the same imm8 and never mix.` : '.')
+    : `Full-width ${en} permute: <code>dst[j] = table[idx[j] &amp; 0x${hex2(N - 1)}]</code> for each of the ${N} ${enp}. ` +
+      `Any table ${en} can land in any position${LANES > 1 ? ', across 128-bit lanes' : ''}. ` +
+      `The indices are the first source (<code>${r}2</code>), the table is the second (<code>${r}3/m${vbits()}</code>).`;
+  document.getElementById('tbl-hint').textContent = immForm()
+    ? `${r}2/m${vbits()}: the ${N} source qwords · click to edit`
+    : `${r}3/m${vbits()}: the ${N} ${enp} to pick from · click to edit`;
+  document.getElementById('isa-ref').href = 'https://www.felixcloutier.com/x86/' + SZ.ref;
+  document.getElementById('notes').innerHTML = notesHtml();
+
+  const h = 'vperm' + SZ.key;
+  if(location.hash !== '#' + h) history.replaceState(null, '', '#' + h);
+  render();
+}
+
+function rebuildPresetOptions(){
+  const sel = document.getElementById('preset');
+  sel.innerHTML = '';
+  sel.appendChild(el('option', '', 'custom')).value = '';
+  for(const p of presetList()) sel.appendChild(el('option', '', presetLabel(p))).value = p.key;
+  sel.value = preset;
+}
+
+function idxTitle(j){
+  const t = id(j);
+  if(immForm()){
+    const lo = 2 * field(j);
+    return `imm8[${lo+1}:${lo}] = ${sel(j)}` + (base(j) ? ` → ${base(j)} + ${sel(j)} = ${t}` : '') +
+      ` → table[${t}]` + (VB === 64 ? ' — same field in both 256-bit halves' : '') + ' — click to edit';
+  }
+  const raw = idx[j];
+  return `idx[${j}] = 0x${hexE(raw)}` + (raw !== BigInt(t) ? ` → low ${nbits()} bits = ${t}` : '') +
+    ` → table[${t}] — click to edit`;
+}
+
+function render(){
+  for(let t=0; t<N; t++){
+    const c = cells.t[t];
+    c._val.textContent = cellText(tbl[t]);
+    c.title = `table[${t}] = ${infoVal(tbl[t])}${where(t)} — click to edit`;
+  }
+  for(let j=0; j<N; j++){
+    const t = id(j);
+    const ci = cells.i[j];
+    ci._val.textContent = immForm() ? sel(j) : t;
+    ci.classList.toggle('ign', !immForm() && idx[j] !== BigInt(t));
+    ci.title = idxTitle(j);
+
+    const on = !!kmask[j];
+    const ck = cells.k[j];
+    ck.classList.toggle('off', !on);
+    ck._val.textContent = on ? 1 : 0;
+    ck.title = `k1[${j}] = ${on ? 1 : 0} → ${on ? 'write' : kmode === 'zero' ? 'zero' : 'keep prior dst'} — click to toggle`;
+
+    const s = dstOf(j);
+    const cd = cells.d[j];
+    cd.className = 'cell dst ' + (s.kind === 'val' ? 'd-val' : s.kind === 'zero' ? 'd-zer' : 'd-keep');
+    cd.classList.toggle('x', s.kind === 'val' && laneOf(t) !== laneOf(j));
+    cd._val.textContent = cellText(s.val);
+    cd.title = s.kind === 'val'  ? `dst[${j}] = table[${t}] = ${infoVal(s.val)}`
+             : s.kind === 'zero' ? `dst[${j}] = 0 (zeroed — k1[${j}] = 0)`
+             :                     `dst[${j}] = ${infoVal(s.val)} (kept — k1[${j}] = 0)`;
+  }
+  renderKres();
+  refreshHover();
+}
+
+function renderKres(){
+  const box = document.getElementById('kres');
+  if(show !== 'char' || SZ.bytes !== 1){ box.innerHTML = ''; return; }
+  const txt = Array.from({length:N}, (_, j) => {
+    const v = Number(dstOf(j).val);
+    return printable(v) ? String.fromCharCode(v) : '·';
+  }).join('');
+  let out = `dst as text (byte 0 first): <strong>"${esc(txt)}"</strong>`;
+  if(preset === 'b64' && !Array.from({length:N}, (_, j) => masked(j)).some(Boolean))
+    out += `<br><span class="hint">= base64 of the 48-byte input "${esc(B64_TEXT)}" — the indices are its 6-bit groups</span>`;
+  box.innerHTML = out;
+}
+
+// Which destination elements does the hover involve, and which table element(s)?
+function hoverTargets(){
+  if(!hov) return { js: [], ts: [] };
+  if(hov.kind === 't'){
+    const js = [];
+    for(let j=0; j<N; j++) if(id(j) === hov.j) js.push(j);
+    return { js, ts: [hov.j] };
+  }
+  return { js: [hov.j], ts: [id(hov.j)] };
+}
+
+function refreshHover(){
+  const { js, ts } = hoverTargets();
+  const jset = new Set(js), tset = new Set(ts);
+  for(let t=0; t<N; t++) cells.t[t].classList.toggle('lit', tset.has(t));
+  for(let L=0; L<LANES; L++) cells.tl[L].classList.toggle('lit', LANES > 1 && ts.some(t => laneOf(t) === L));
+  for(let j=0; j<N; j++){
+    const on = jset.has(j);
+    cells.i[j].classList.toggle('active', on);
+    cells.i[j].classList.toggle('editing', j === editing);
+    cells.k[j].classList.toggle('active', on && kmode !== 'off');
+    cells.d[j].classList.toggle('active', on);
+  }
+  drawArrows(js);
+  updateInfo();
+}
+
+// ─── Arrows ─────────────────────────────────────────────────────────────────
+function drawArrows(js){
+  const vis = document.getElementById('vis');
+  const canv = document.getElementById('arrows');
+  const W = vis.offsetWidth, H = vis.offsetHeight;
+  const dpr = window.devicePixelRatio || 1;
+  canv.style.width = W + 'px'; canv.style.height = H + 'px';
+  canv.width = W * dpr; canv.height = H * dpr;
+  const ctx = canv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  if(!js.length) return;
+
+  const vr = vis.getBoundingClientRect();
+  const halo = getComputedStyle(document.body).getPropertyValue('--bg').trim() || '#fff';
+  for(const j of js){
+    const a = cells.t[id(j)].getBoundingClientRect();
+    const b = cells.i[j].getBoundingClientRect();
+    const x1 = a.left + a.width/2 - vr.left, y1 = a.bottom - vr.top - 2;
+    const x2 = b.left + b.width/2 - vr.left, y2 = b.top - vr.top - 1;
+    const dy = (y2 - y1) * 0.5;
+    const off = masked(j);
+    const col = off ? '#888780' : '#EF9F27';
+    const path = () => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.bezierCurveTo(x1, y1 + dy, x2, y2 - dy, x2, y2 - 7); };
+    ctx.setLineDash([]);
+    path(); ctx.strokeStyle = halo; ctx.lineWidth = 5; ctx.globalAlpha = .7; ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash(off ? [4, 4] : []);
+    path(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2); ctx.lineTo(x2 - 5, y2 - 8); ctx.lineTo(x2 + 5, y2 - 8); ctx.closePath();
+    ctx.fillStyle = col; ctx.fill();
+  }
+}
+
+// ─── Info box ───────────────────────────────────────────────────────────────
+function idleText(){
+  const en = SZ.elemName;
+  return immForm()
+    ? `Hover a qword to trace it. Click an <strong>imm8</strong> field to edit it — then click a <strong>table</strong> qword in the same 256-bit block to point it there. Click a table qword to change its value.`
+    : `Hover a ${en} to trace it. Click an <strong>idx</strong> ${en} to edit it — then click any <strong>table</strong> ${en} to point it there. Click a table ${en} to change its value.`;
+}
+
+function maskTail(j){
+  if(!masked(j)) return '';
+  return kmode === 'zero'
+    ? ` but <strong>k1[${j}] = 0</strong> → <strong>dst[${j}] = 0</strong> (zeroed)`
+    : ` but <strong>k1[${j}] = 0</strong> → <strong>dst[${j}] = ${infoVal(dstPrev[j])}</strong> (prior value kept)`;
+}
+
+function updateInfo(){
+  const box = document.getElementById('info');
+  if(!hov){ box.innerHTML = idleText(); return; }
+
+  if(hov.kind === 't'){
+    const t = hov.j;
+    const readers = [];
+    for(let j=0; j<N; j++) if(id(j) === t) readers.push(j);
+    const head = `<strong>table[${t}] = ${infoVal(tbl[t])}</strong>${where(t)}`;
+    if(!readers.length){
+      box.innerHTML = `${head} — no ${immForm() ? 'imm8 field' : 'idx ' + SZ.elemName} selects it, so it doesn't appear in dst.`;
+      return;
+    }
+    const live = readers.filter(j => !masked(j)), dead = readers.filter(j => masked(j));
+    if(!live.length){
+      box.innerHTML = `${head} → selected for dst[${readers.join('], dst[')}], but every one is masked off by k1.`;
+      return;
+    }
+    let s = `${head} → copied to <strong>dst[${live.join('], dst[')}]</strong>`;
+    if(dead.length) s += ` <span class="hint">(also selected for dst[${dead.join('], dst[')}], masked off by k1)</span>`;
+    if(readers.length > 1) s += ` — one table ${SZ.elemName} can feed any number of destinations.`;
+    box.innerHTML = s;
+    return;
+  }
+
+  const j = hov.j, t = id(j);
+  let s = '';
+  if(hov.kind === 'k') s += `<strong>k1[${j}] = ${kmask[j]}</strong> · `;
+  const notes = [];
+  if(immForm()){
+    const lo = 2 * field(j);
+    const b = imm8.toString(2).padStart(8, '0');
+    const at = 6 - lo;
+    s += `<strong>imm8[${lo+1}:${lo}] = ${sel(j)}</strong> <code>0b${b.slice(0, at)}<strong>${b.slice(at, at + 2)}</strong>${b.slice(at + 2)}</code> → `;
+    if(base(j)) s += `upper 256 bits, so ${base(j)} + ${sel(j)} = `;
+    s += `<strong>${t}</strong>${where(t)} → reads <strong>table[${t}] = ${infoVal(tbl[t])}</strong>`;
+    if(VB === 64) notes.push(`dst[${j ^ 4}] uses the same field, in the other 256-bit half`);
+  } else {
+    const raw = idx[j];
+    s += `<strong>idx[${j}] = 0x${hexE(raw)}</strong> <code>0b${bitsHtml(raw)}</code> → `;
+    if(raw !== BigInt(t)) s += `bits [${ebits()-1}:${nbits()}] ignored → `;
+    s += `<strong>${t}</strong>${where(t)} → reads <strong>table[${t}] = ${infoVal(tbl[t])}</strong>`;
+    if(SZ.key === 'b'){
+      const r = Number(raw);
+      if(r & 0x80) notes.push('bit 7 is set, yet the byte is not zeroed as it would be with PSHUFB');
+      if((r & 0x7F) !== t) notes.push(r & 0x80
+        ? `even without bit 7, ${r & 0x7F} is past the end of the ${N}-byte table, so it wraps`
+        : `0x${hex2(r)} is past the end of the ${N}-byte table, so it wraps`);
+    } else if(raw !== BigInt(t)){
+      notes.push(`0x${hexE(raw)} is past the end of the ${N}-${SZ.elemName} table, so it wraps`);
+    }
+  }
+  s += masked(j) ? maskTail(j) : ` → <strong>dst[${j}] = ${infoVal(tbl[t])}</strong>`;
+  if(LANES > 1 && laneOf(t) !== laneOf(j)) notes.unshift(`crosses from lane ${laneOf(t)} into lane ${laneOf(j)} — ${SZ.inLane} can't do that`);
+  if(notes.length) s += ` <span class="hint">— ${notes.join('; ')}</span>`;
+  box.innerHTML = s;
+}
+
+// ─── Notes ──────────────────────────────────────────────────────────────────
+function notesHtml(){
+  const k = SZ.key, m = mnemonic(), en = SZ.elemName, enp = SZ.elemNameP;
+  const L = [];
+  const avx2Req = 'Without a mask, the YMM form needs only <code>AVX2</code> (Intel since Haswell, AMD since Excavator). Masking or ZMM needs <code>AVX512F</code>, plus <code>AVX512VL</code> for YMM.';
+  if(immForm()){
+    L.push(`<strong>Operand order.</strong> <code>VPERMQ dst, src, imm8</code>: one source (ModR/M r/m, so it can come from memory) and a constant selector. Intrinsics: <code>_mm256_permute4x64_epi64(src, imm8)</code> (AVX2) and <code>_mm512_permutex_epi64(src, imm8)</code>.`);
+    L.push(`<strong>Four 2-bit fields.</strong> <code>imm8[2j+1:2j]</code> picks the source qword for qword <code>j</code> of each 256-bit block. That crosses the 128-bit lane boundary, which <code>PSHUFD</code> can't, but never the 256-bit one.`);
+    L.push(`<strong>ZMM reuses the imm8 for both halves.</strong> dst qwords 4–7 read only from source qwords 4–7. To move qwords between the halves use the vector-index form (set <em>Index</em> to <em>vector</em>), or <code>VSHUFI64X2</code> for whole 128-bit lanes.`);
+    L.push(`Encodings: VEX.256 (AVX2, no masking) and EVEX.256/512, where the source may also be an <code>m64bcst</code> broadcast. There is no XMM form: two qwords are swapped with <code>PSHUFD</code>.`);
+    L.push(`Bits above the vector length are zeroed, as for every VEX/EVEX instruction.`);
+    L.push(`The floating-point twin is <code>VPERMPD ymm, ymm/m256, imm8</code>.`);
+    L.push(avx2Req);
+    return L.map(x => `<li>${x}</li>`).join('');
+  }
+
+  const intr = { b:'epi8', w:'epi16', d:'epi32', q:'epi64' }[k];
+  let oo = `<strong>Operand order.</strong> Intel syntax is <code>${m} dst, idx, table</code>: the indices are the <em>first</em> source (${k === 'd' ? 'VEX.vvvv / EVEX.vvvv' : 'EVEX.vvvv'}, always a register) and the table is the second (ModR/M r/m, so it can come straight from memory). ` +
+    `The AVX-512 intrinsic keeps that order: <code>_mm512_permutexvar_${intr}(idx, table)</code>. AT&amp;T syntax reverses it: <code>vperm${k} table, idx, dst</code>.`;
+  if(k === 'd') oo += ` The AVX2 intrinsic does <strong>not</strong> keep it: <code>_mm256_permutevar8x32_epi32(table, idx)</code> takes the table first.`;
+  L.push(oo);
+  L.push(`<strong>Lanes don't matter.</strong> Unlike <code>${SZ.inLane}</code>, which only move${k === 'b' || k === 'd' || k === 'q' ? 's' : ''} data within each 128-bit lane, every destination ${en} can take any table ${en}. The orange dot on a dst ${en} marks one that came from another lane.`);
+
+  const rng = [];
+  for(const vb of [16, 32, 64]) if(vb >= SZ.minVB)
+    rng.push(`[${Math.log2(vb / SZ.bytes) - 1}:0] for ${vb === 16 ? 'XMM' : vb === 32 ? 'YMM' : 'ZMM'}`);
+  L.push(`<strong>Only the low log<sub>2</sub>(N) index bits are used</strong>: bits ${rng.join(', ')}. The rest of each ${en} is ignored, so indices wrap around the table.`);
+
+  if(k === 'b')
+    L.push(`<strong>Bit 7 does not zero.</strong> <code>PSHUFB</code> writes 0 where the index has bit 7 set; <code>VPERMB</code> ignores bit 7. To get the same effect use zero-masking, e.g. <code>vpmovb2m k1, idx</code> then <code>knotq k1, k1</code> and <code>vpermb dst{k1}{z}, idx, table</code>.`);
+  if(k === 'd' || k === 'q')
+    L.push(`<strong>No XMM form.</strong> Within 128 bits, ${k === 'd' ? 'four dwords' : 'two qwords'} can already be rearranged with <code>PSHUFD</code>${k === 'd' ? ' or <code>VPERMILPS</code>' : ''}, so ${m} starts at YMM.`);
+  if(k === 'q')
+    L.push(`<code>VPERMQ</code> also has an <strong>imm8 form</strong>, the one AVX2 has: no index register, but it only permutes within each 256-bit block. Set <em>Index</em> to <em>imm8</em> to see it.`);
+
+  if(k === 'b' || k === 'w')
+    L.push(`No embedded broadcast (${enp} have no <code>{1toN}</code> form), and there is no VEX or legacy encoding: it is EVEX-only.`);
+  else if(k === 'd')
+    L.push(`Encodings: VEX.256 (AVX2, no masking) and EVEX.256/512. EVEX allows an <code>m32bcst</code> table, but a broadcast table has every entry equal, so the result is just that value.`);
+  else
+    L.push(`This form is EVEX-only (AVX2's VEX <code>VPERMQ</code> is the imm8 form). EVEX allows an <code>m64bcst</code> table, but a broadcast table has every entry equal, so the result is just that value.`);
+  L.push(`Bits above the vector length are zeroed, as for every ${k === 'd' ? 'VEX/' : ''}EVEX instruction.`);
+
+  const others = SIZES.filter(s => s !== SZ).map(s => `<code>VPERM${s.name}</code>`);
+  let tt = `For lookups across <em>two</em> tables use <code>VPERMI2${SZ.name}</code> / <code>VPERMT2${SZ.name}</code>, which use one more index bit. The other element sizes are ${others.slice(0, -1).join(', ')} and ${others[others.length - 1]}.`;
+  if(k === 'd') tt += ` <code>VPERMPS</code> is the floating-point twin.`;
+  if(k === 'q') tt += ` <code>VPERMPD</code> is the floating-point twin.`;
+  L.push(tt);
+
+  if(k === 'b')
+    L.push(`A full ZMM table holds 64 entries, exactly the base64 alphabet. That makes <code>VPERMB</code> the lookup step of AVX-512 base64 encoders: a byte shuffle and <code>VPMULTISHIFTQB</code> cut 48 input bytes into 64 six-bit fields, one per byte, leaving junk in bits 7:6. <code>VPERMB</code> ignores those bits, so it turns the fields into characters with no masking step. Try the <em>base64</em> preset.`);
+
+  L.push({
+    b: 'Requires <code>AVX512_VBMI</code> (<code>CPUID.(EAX=07H, ECX=0):ECX[1]</code>), plus <code>AVX512VL</code> for XMM/YMM. Intel since Cannon Lake / Ice Lake, AMD since Zen 4.',
+    w: 'Requires <code>AVX512BW</code>, plus <code>AVX512VL</code> for XMM/YMM. Intel since Skylake-SP, AMD since Zen 4.',
+    d: avx2Req,
+    q: 'Requires <code>AVX512F</code>, plus <code>AVX512VL</code> for YMM. Intel since Skylake-SP, AMD since Zen 4.',
+  }[k]);
+  return L.map(x => `<li>${x}</li>`).join('');
+}
+
+// ─── Editing ────────────────────────────────────────────────────────────────
+// Parse an element value as a BigInt of `nb` bits; null if invalid. A quoted
+// character is accepted for bytes; a negative decimal wraps (−1 = all ones).
+function parseVal(raw, decimalFirst, nb = ebits()){
+  const s = raw.trim();
+  const m = /^'(.)'?$/.exec(s);
+  if(m){
+    const c = m[1].charCodeAt(0);
+    return nb === 8 && c <= 0xFF ? BigInt(c) : null;
+  }
+  let v;
+  if(/^0x[0-9a-f]+$/i.test(s) || /^0b[01]+$/i.test(s)) v = BigInt(s);
+  else if(decimalFirst && /^-?\d+$/.test(s)) v = BigInt(s);
+  else if(/^[0-9a-f]+$/i.test(s)) v = BigInt('0x' + s);
+  else return null;
+  const mod = 1n << BigInt(nb);
+  if(v < 0n){ if(-v > mod >> 1n) return null; v += mod; }
+  return v < mod ? v : null;
+}
+
+function popupAt(anchor, label){
+  closePopup();
+  const host = document.querySelector('.card');
+  const hr = host.getBoundingClientRect(), er = anchor.getBoundingClientRect();
+  const pop = el('div', 'popup');
+  pop.id = 'active-popup';
+  pop.style.left = Math.max(8, Math.min(er.left - hr.left + er.width/2 - 100, hr.width - 208)) + 'px';
+  pop.style.top = (er.bottom - hr.top + 6) + 'px';
+  pop.appendChild(el('div', 'popup-lbl', label));
+  host.appendChild(pop);
+  return pop;
+}
+
+function addInput(pop, value, commit){
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = value;
+  const go = () => {
+    if(commit(inp.value) === false){ inp.style.borderColor = '#E24B4A'; return; }
+    closePopup(); render();
+  };
+  inp.onkeydown = e => { if(e.key === 'Enter') go(); if(e.key === 'Escape') closePopup(); };
+  pop.appendChild(inp);
+  const row = el('div', 'popup-row');
+  const ok = el('button', '', 'Set'); ok.onclick = go;
+  const no = el('button', '', 'Cancel'); no.style.color = 'var(--text3)'; no.onclick = closePopup;
+  row.appendChild(ok); row.appendChild(no);
+  pop.appendChild(row);
+  setTimeout(() => inp.select(), 0);
+}
+
+function addQuick(pop, buttons){
+  const row = el('div', 'popup-row');
+  for(const [label, fn] of buttons){
+    const b = el('button', '', label);
+    b.onclick = () => { fn(); markCustom(); closePopup(); sync(); };
+    row.appendChild(b);
+  }
+  pop.appendChild(row);
+}
+
+function onOutside(pop, anchor, extra){
+  const out = e => {
+    if(pop.contains(e.target) || anchor.contains(e.target)) return;
+    if(extra && extra(e)) return;
+    closePopup();
+  };
+  pop._out = out;
+  document.addEventListener('mousedown', out);
+}
+
+function setSel(j, v){
+  const sh = 2 * field(j);
+  imm8 = (imm8 & ~(3 << sh)) | ((v & 3) << sh);
+}
+
+function openIdxPopup(j, anchor){
+  const imm = immForm();
+  const lo = 2 * field(j), b0 = base(j);
+  const canPick = t => !imm || (t >= b0 && t < b0 + 4);
+  const pop = imm
+    ? popupAt(anchor, `imm8[${lo+1}:${lo}] — 0 to 3<br>or click a table qword ${b0}–${b0+3} to point at it` +
+        (VB === 64 ? '<br>(the other 256-bit half uses this field too)' : ''))
+    : popupAt(anchor, `idx[${j}] — decimal, 0x.. hex or 0b.. binary<br>or click a table ${SZ.elemName} to point at it`);
+  editing = j;
+  cells.t.forEach((c, t) => c.classList.toggle('pick', canPick(t)));
+  if(imm){
+    addInput(pop, String(sel(j)), v => {
+      if(!/^\s*[0-3]\s*$/.test(v)) return false;
+      setSel(j, +v); markCustom(); sync();
+    });
+    addQuick(pop, [0, 1, 2, 3].map(v => [String(v), () => setSel(j, v)]));
+  } else {
+    addInput(pop, '0x' + hexE(idx[j]), v => {
+      const b = parseVal(v, true);
+      if(b === null) return false;
+      idx[j] = b; markCustom(); sync();
+    });
+    addQuick(pop, [
+      ['−1', () => { idx[j] = (idx[j] - 1n) & emask(); }],
+      ['+1', () => { idx[j] = (idx[j] + 1n) & emask(); }],
+      [SZ.bytes === 1 ? '^0x80' : '^MSB', () => { idx[j] ^= topBit(); }],
+    ]);
+  }
+  onOutside(pop, anchor, e => {
+    const c = e.target.closest && e.target.closest('.tb');
+    if(!c || e.button !== 0) return false;
+    const t = +c.dataset.t;
+    swallow = true;                       // either way, this click must not open the table popup
+    if(!canPick(t)) return true;          // outside this 256-bit block: ignore, keep editing
+    if(imm) setSel(j, t - b0); else idx[j] = BigInt(t);
+    markCustom(); closePopup(); sync();
+    return true;
+  });
+  refreshHover();
+}
+
+function openTblPopup(t, anchor){
+  const byte = SZ.bytes === 1;
+  const pop = popupAt(anchor, `table[${t}] — hex ${SZ.elemName}${byte ? ", or 'c' for a character" : ''}`);
+  addInput(pop, hexE(tbl[t]), v => {
+    const b = parseVal(v, false);
+    if(b === null) return false;
+    tbl[t] = b; markCustom(); sync();
+  });
+  addQuick(pop, [
+    [byte ? '00' : '0',  () => { tbl[t] = 0n; }],
+    [byte ? 'FF' : '~0', () => { tbl[t] = emask(); }],
+    ['reset', () => { tbl[t] = tagTable(t); }],
+  ]);
+  onOutside(pop, anchor);
+}
+
+function openImmPopup(anchor){
+  const pop = popupAt(anchor, 'imm8 — 0x.. hex, decimal or 0b.. binary');
+  addInput(pop, '0x' + hex2(imm8), v => {
+    const b = parseVal(v, true, 8);
+    if(b === null) return false;
+    imm8 = Number(b); markCustom(); sync();
+  });
+  addQuick(pop, [
+    ['0x1B', () => { imm8 = 0x1B; }],
+    ['0x4E', () => { imm8 = 0x4E; }],
+    ['0xE4', () => { imm8 = 0xE4; }],
+  ]);
+  onOutside(pop, anchor);
+}
+
+function closePopup(){
+  const p = document.getElementById('active-popup');
+  if(p){ document.removeEventListener('mousedown', p._out); p.remove(); }
+  if(editing >= 0){
+    editing = -1;
+    if(cells){ for(const c of cells.t) c.classList.remove('pick'); refreshHover(); }
+  }
+}
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────────
+const tabBar = document.getElementById('tabs');
+for(const s of SIZES){
+  const btn = el('button', 'tab', 'VPERM' + s.name);
+  btn.dataset.instr = s.key;
+  btn.title = `VPERM${s.name} — full-width ${s.elemName} permute`;
+  btn.addEventListener('click', () => selectSize(s.key));
+  tabBar.appendChild(btn);
+}
+window.addEventListener('hashchange', () => {
+  const k = parseHash(location.hash.replace(/^#/, ''));
+  if(k && k !== SZ.key) selectSize(k);
+});
+window.addEventListener('resize', () => refreshHover());
+// A pick that never became a click (dragged off) must not swallow a later one.
+document.addEventListener('mousedown', () => { swallow = false; }, true);
+
+selectSize(parseHash(location.hash.replace(/^#/, '')) || 'b');
+</script>
+</body>
+</html>
